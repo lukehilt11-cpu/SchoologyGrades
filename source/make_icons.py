@@ -12,6 +12,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ICON_DIR = os.path.join(HERE, "icons")
+os.makedirs(ICON_DIR, exist_ok=True)
 CANVAS = 2048  # drawn at 2x, then shrunk for smooth edges
 
 
@@ -151,11 +153,11 @@ def extras(win_icon):
     side.alpha_composite(glow)
     icon = win_icon.resize((int(w * 0.66), int(w * 0.66)), Image.LANCZOS)
     side.alpha_composite(with_shadow(icon, int(w * 0.02), w * 0.03, 0.40), ((w - icon.width) // 2, int(h * 0.12)))
-    side.resize((164, 314), Image.LANCZOS).convert("RGB").save(os.path.join(HERE, "wizard_large.bmp"), "BMP")
+    side.resize((164, 314), Image.LANCZOS).convert("RGB").save(os.path.join(ICON_DIR, "wizard_large.bmp"), "BMP")
 
     small = Image.new("RGBA", (55, 55), (255, 255, 255, 255))
     small.alpha_composite(win_icon.resize((47, 47), Image.LANCZOS), (4, 4))
-    small.convert("RGB").save(os.path.join(HERE, "wizard_small.bmp"), "BMP")
+    small.convert("RGB").save(os.path.join(ICON_DIR, "wizard_small.bmp"), "BMP")
 
     # disk image background (660x420): soft backdrop with an arrow from the apps to Applications
     scale = 2
@@ -171,19 +173,19 @@ def extras(win_icon):
     d.polygon([(w * 0.520, cy - h * 0.085), (w * 0.520, cy + h * 0.085), (w * 0.610, cy)], fill=(c1[0], c1[1], c1[2], 120))
     d.line([(w * 0.520, cy - h * 0.085), (w * 0.610, cy), (w * 0.520, cy + h * 0.085)], fill=(c1[0], c1[1], c1[2], 120), width=int(h * 0.012), joint="curve")
     bg.alpha_composite(arrow)
-    bg.resize((660, 420), Image.LANCZOS).convert("RGB").save(os.path.join(HERE, "dmg_background.png"))
+    bg.resize((660, 420), Image.LANCZOS).convert("RGB").save(os.path.join(ICON_DIR, "dmg_background.png"))
 
 
 def main():
     for name in ICONS:
         win = render(name, mac=False)
         mac = render(name, mac=True)
-        win.save(os.path.join(HERE, f"{name}.ico"),
+        win.save(os.path.join(ICON_DIR, f"{name}.ico"),
                  sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-        mac.save(os.path.join(HERE, f"{name}.icns"))
-        win.resize((256, 256), Image.LANCZOS).save(os.path.join(HERE, f"{name}_256.png"))
+        mac.save(os.path.join(ICON_DIR, f"{name}.icns"))
+        win.resize((256, 256), Image.LANCZOS).save(os.path.join(ICON_DIR, f"{name}_256.png"))
         if name == "grades":
-            win.resize((64, 64), Image.LANCZOS).save(os.path.join(HERE, "grades_64.png"))
+            win.resize((64, 64), Image.LANCZOS).save(os.path.join(ICON_DIR, "grades_64.png"))
             extras(win)
 
 
