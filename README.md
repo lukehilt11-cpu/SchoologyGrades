@@ -5,7 +5,7 @@ An automated grade monitoring tool for Schoology. It signs in securely using Goo
 
 Pre-built binaries for **Windows** and **macOS** are available directly from the repository releases:
 
-* **Download the Latest Release:** Go to the [GitHub Releases](https://github.com/your-username/schoology-grades/releases/latest) page.
+* **Download the Latest Release:** Go to the [GitHub Releases](https://github.com/lukehilt11-cpu/SchoologyGrades/releases/tag/latest) page.
 * **Windows:** Download and run `SchoologyGrades-1.0-Setup.exe` to install, or use the portable `.zip` version.
 * **macOS:** Download the `.app` bundle from the latest release.
 
