@@ -1,285 +1,420 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schoology Grade Checker | Desktop Grade Tracking</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            50: '#eff6ff',
-                            100: '#dbeafe',
-                            500: '#3b82f6',
-                            600: '#2563eb',
-                            700: '#1d4ed8',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-    </style>
-    <!-- Basic Open Graph Tags -->
-  <meta property="og:title" content="Schoology Grade Checker" />
-  <meta property="og:description" content="Check all your grades in one click." />
-  <meta property="og:image" content="https://raw.githubusercontent.com/lukehilt11-cpu/SchoologyGrades/main/source/icons/grades_256.png" />
-  <meta property="og:url" content="https://lukehilt11-cpu.github.io/SchoologyGrades/" />
-  <meta property="og:type" content="website" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schoology Grade Checker: your grades in one click</title>
+<meta name="description" content="A free desktop app for Windows and Mac that signs in to Schoology, reads every class at once, and shows your grades in a clean report window.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#5448e0">
+<meta property="og:title" content="Schoology Grade Checker">
+<meta property="og:description" content="Your Schoology grades in one click. Windows and Mac.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235e5ce6'/%3E%3Cstop offset='1' stop-color='%2312bcf0'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cg stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round' fill='none'%3E%3Cpath d='M12 48 L26 16 L40 48 M17.5 37 H34.5'/%3E%3Cpath d='M47 21 V35 M40 28 H54' stroke-width='5'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+  /* apply a saved Light/Dark choice before anything is drawn, so there is no flash */
+  try { var t = localStorage.getItem("sgTheme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<style>
+:root {
+  --bg: #f5f6fa; --card: #ffffff; --text: #14161c; --muted: #596070; --line: #e3e6ee;
+  --soft: #eef0f7; --accent: #4338ca; --accent-soft: #eef0ff; --head: #f1f3f9;
+  --glow1: rgba(94,92,230,.16); --glow2: rgba(18,188,240,.14);
+  --shadow: 0 10px 40px rgba(20,22,40,.10); --btn: #e9ecf4; --btn-hover: #dde1ec;
+  --ok: #0f766e; --warn-bg: #fff7e6; --warn-line: #f3d9a4; --warn-text: #6b4a05;
+}
+:root[data-theme="dark"] {
+  --bg: #0b0d12; --card: #151821; --text: #f1f2f6; --muted: #a0a7b6; --line: #262b36;
+  --soft: #1b1f29; --accent: #a5b4fc; --accent-soft: #1f2347; --head: #1e222c;
+  --glow1: rgba(94,92,230,.28); --glow2: rgba(18,188,240,.18);
+  --shadow: 0 14px 50px rgba(0,0,0,.55); --btn: #232734; --btn-hover: #2f3444;
+  --ok: #5eead4; --warn-bg: #2b2310; --warn-line: #5b4a1c; --warn-text: #f3d9a4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0d12; --card: #151821; --text: #f1f2f6; --muted: #a0a7b6; --line: #262b36;
+    --soft: #1b1f29; --accent: #a5b4fc; --accent-soft: #1f2347; --head: #1e222c;
+    --glow1: rgba(94,92,230,.28); --glow2: rgba(18,188,240,.18);
+    --shadow: 0 14px 50px rgba(0,0,0,.55); --btn: #232734; --btn-hover: #2f3444;
+    --ok: #5eead4; --warn-bg: #2b2310; --warn-line: #5b4a1c; --warn-text: #f3d9a4;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #7c8cff; outline-offset: 3px; border-radius: 8px; }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 22px; }
+.skip { position: absolute; left: -999px; top: 8px; background: var(--card); padding: 8px 12px; border-radius: 8px; z-index: 100; }
+.skip:focus { left: 8px; }
 
-  <!-- Twitter Card Tags -->
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Schoology Grade Checker" />
-  <meta name="twitter:description" content="Check all your grades in one click." />
-  <meta name="twitter:image" content="https://raw.githubusercontent.com/lukehilt11-cpu/SchoologyGrades/main/source/icons/grades_256.png" /
+/* ---- header ---- */
+header { position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(180%) blur(14px);
+  background: color-mix(in srgb, var(--bg) 82%, transparent); border-bottom: 1px solid var(--line); }
+.bar { display: flex; align-items: center; justify-content: space-between; height: 62px; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 11px; font-weight: 700; letter-spacing: -.01em; color: var(--text); text-decoration: none; }
+.brand svg { width: 32px; height: 32px; flex: none; }
+nav { display: flex; align-items: center; gap: 22px; font-size: 14.5px; font-weight: 500; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--text); }
+#theme { width: 36px; height: 36px; border: 0; border-radius: 50%; cursor: pointer; background: var(--btn); color: var(--text);
+  display: grid; place-items: center; padding: 0; }
+#theme:hover { background: var(--btn-hover); }
+#theme svg { width: 20px; height: 20px; display: none; }
+#theme[data-mode="auto"] .i-auto, #theme[data-mode="light"] .i-sun, #theme[data-mode="dark"] .i-moon { display: block; }
+@media (max-width: 720px) { nav .hide-s { display: none; } nav { gap: 14px; } }
+
+/* ---- hero ---- */
+.hero { position: relative; overflow: hidden; padding: 64px 0 72px;
+  background: radial-gradient(60% 55% at 15% 0%, var(--glow1), transparent 70%), radial-gradient(50% 50% at 95% 25%, var(--glow2), transparent 70%); }
+.hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 44px; align-items: center; }
+.eyebrow { display: inline-block; padding: 5px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+h1 { margin: 16px 0 14px; font-size: clamp(34px, 5.2vw, 56px); line-height: 1.05; letter-spacing: -.03em; font-weight: 800; }
+h1 span { background: linear-gradient(100deg, #6a62f0, #12a8e0); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lead { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 33em; margin: 0 0 26px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 24px; border-radius: 14px; font-weight: 700; font-size: 16.5px;
+  text-decoration: none; border: 1px solid transparent; cursor: pointer; }
+.btn svg { width: 20px; height: 20px; }
+.btn-primary { color: #fff; background: linear-gradient(120deg, #5448e0, #0a7fc0); box-shadow: 0 8px 24px rgba(84,72,224,.35); }
+.btn-primary:hover { filter: brightness(1.07); }
+.btn-ghost { color: var(--text); background: var(--card); border-color: var(--line); }
+.btn-ghost:hover { background: var(--soft); }
+.meta { margin: 16px 0 0; font-size: 13.5px; color: var(--muted); }
+.meta a { color: var(--muted); }
+.notice { display: none; margin-top: 16px; padding: 11px 14px; border-radius: 12px; background: var(--warn-bg); border: 1px solid var(--warn-line);
+  color: var(--warn-text); font-size: 14px; }
+.notice.show { display: block; }
+
+/* ---- mock report (looks like the real one) ---- */
+.mock { background: var(--card); border-radius: 18px; padding: 20px 22px 14px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+.mock-top { display: flex; align-items: center; justify-content: space-between; }
+.mock h2 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+.mock .sub { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
+.mock .dot { width: 32px; height: 32px; border-radius: 50%; background: var(--btn); display: grid; place-items: center; color: var(--text); }
+.mock .dot svg { width: 18px; height: 18px; }
+.mock table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+.mock th { background: var(--head); color: var(--muted); padding: 9px 10px; font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; }
+.mock th:first-child { text-align: left; border-radius: 9px 0 0 9px; } .mock th:last-child { border-radius: 0 9px 9px 0; }
+.mock td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: center; font-variant-numeric: tabular-nums; }
+.mock td:first-child { text-align: left; font-weight: 500; }
+.mock tr:last-child td { border-bottom: 0; }
+.mock td.g { font-weight: 700; color: var(--muted); }
+.mock .foot { text-align: center; color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+@media (max-width: 880px) { .hero-grid { grid-template-columns: 1fr; } .hero { padding-top: 40px; } }
+
+/* ---- sections ---- */
+section { padding: 70px 0; }
+section + section { border-top: 1px solid var(--line); }
+.sec-head { max-width: 40em; margin: 0 0 36px; }
+h2.t { margin: 0 0 10px; font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -.025em; line-height: 1.15; }
+.sec-head p { margin: 0; color: var(--muted); font-size: 17px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: s; }
+.step { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; }
+.step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%;
+  background: linear-gradient(120deg, #5448e0, #0a7fc0); color: #fff; font-weight: 700; margin-bottom: 14px; }
+.step h3, .card h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -.01em; }
+.step p, .card p { margin: 0; color: var(--muted); font-size: 15px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; }
+.ico { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 14px; background: var(--accent-soft); color: var(--accent); }
+.ico svg { width: 22px; height: 22px; }
+@media (max-width: 900px) { .steps, .grid3 { grid-template-columns: 1fr; } }
+@media (min-width: 901px) and (max-width: 1020px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
+
+.os { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.os .card { padding: 28px; }
+.os h3 { font-size: 20px; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.os ol { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+.os li { margin: 8px 0; }
+.os li strong { color: var(--text); }
+.os .small { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
+kbd { font: inherit; font-size: .92em; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+@media (max-width: 800px) { .os { grid-template-columns: 1fr; } }
+
+.privacy { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.privacy .card ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+.privacy .card li { margin: 7px 0; }
+@media (max-width: 800px) { .privacy { grid-template-columns: 1fr; } }
+
+details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 0 0 12px; }
+summary { cursor: pointer; padding: 16px 20px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; font-size: 22px; line-height: 1; color: var(--muted); flex: none; }
+details[open] summary::after { content: "\2212"; }
+details p, details ul { margin: 0; padding: 0 20px 18px; color: var(--muted); font-size: 15.5px; }
+details ul { padding-left: 40px; }
+
+footer { border-top: 1px solid var(--line); padding: 34px 0 44px; color: var(--muted); font-size: 13.5px; }
+.foot-row { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; align-items: flex-start; }
+.foot-row p { margin: 0; max-width: 40em; }
+.foot-links { display: flex; gap: 20px; flex-wrap: wrap; }
+.foot-links a { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+<body>
+<a class="skip" href="#main">Skip to the content</a>
 
-    <!-- Header Navigation -->
-    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center font-bold text-white shadow-lg shadow-brand-500/20">
-                    S
-                </div>
-                <span class="font-bold text-lg text-slate-100 tracking-tight">SchoologyGrades</span>
-            </div>
-            <nav class="flex items-center space-x-6 text-sm font-medium">
-                <a href="#features" class="text-slate-400 hover:text-slate-200 transition-colors">Features</a>
-                <a href="#install" class="text-slate-400 hover:text-slate-200 transition-colors">Installation</a>
-                <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/tree/main/source" target="_blank" rel="noopener" class="text-slate-400 hover:text-slate-200 transition-colors">Source Code</a>
-                <button onclick="downloadApp()" class="bg-brand-600 hover:bg-brand-500 text-white px-4 py-2 rounded-lg transition-all shadow-md shadow-brand-600/30">Download</button>
-            </nav>
-        </div>
-    </header>
+<header>
+  <div class="wrap bar">
+    <a class="brand" href="#top" aria-label="Schoology Grade Checker, top of the page">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5e5ce6"/><stop offset="1" stop-color="#12bcf0"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><g stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M12 48 L26 16 L40 48 M17.5 37 H34.5"/><path d="M47 21 V35 M40 28 H54" stroke-width="5"/></g></svg>
+      <span>Schoology Grade Checker</span>
+    </a>
+    <nav aria-label="Main">
+      <a class="hide-s" href="#how">How it works</a>
+      <a class="hide-s" href="#install">Install</a>
+      <a href="#privacy">Privacy</a>
+      <a class="hide-s" href="#faq">FAQ</a>
+      <button id="theme" type="button" data-mode="auto" title="Theme">
+        <svg class="i-auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3L7 7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
 
-    <main class="flex-grow">
-        <!-- Hero Section -->
-        <section class="py-20 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto text-center">
-            <div class="inline-block px-3 py-1 mb-6 rounded-full bg-brand-500/10 text-brand-400 text-xs font-semibold tracking-wide border border-brand-500/20">
-                Fastest Way To Your Grades
-            </div>
-            <h1 class="text-4xl sm:text-6xl font-extrabold tracking-tight text-white max-w-4xl mx-auto leading-tight">
-                SchoologyGrades
-            </h1>
-            <p class="mt-4 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
-                Your grades, right there. Easy setup and quick processing. You'll never spend 10 minutes going through Schoology again.
-            </p>
+<main id="main">
+<div id="top"></div>
 
-            <!-- Smart Download Button & OS Detection -->
-            <div class="mt-8 flex flex-col items-center justify-center">
-                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 w-full sm:w-auto">
-                    <button onclick="downloadApp()" class="w-full sm:w-auto bg-brand-600 hover:bg-brand-500 text-white px-8 py-3.5 rounded-xl font-semibold transition-all shadow-lg shadow-brand-600/30 border border-brand-500 flex items-center justify-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                        </svg>
-                        <span id="download-btn-text">Download for Your OS</span>
-                    </button>
-                    <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/tree/main/source" target="_blank" rel="noopener" class="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-200 px-8 py-3.5 rounded-xl font-semibold border border-slate-700 transition-all flex items-center justify-center gap-2">
-                        <svg class="w-5 h-5 text-slate-400" fill="currentColor" viewBox="0 0 24 24">
-                            <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
-                        </svg>
-                        <span>View Source</span>
-                    </a>
-                </div>
-                <div class="mt-3 text-xs text-slate-400 flex items-center gap-2">
-                    <span id="detected-os-text">Detecting OS...</span>
-                    <span>•</span>
-                    <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-Setup.exe" class="hover:underline text-slate-300">Windows (.exe)</a>
-                    <span>|</span>
-                    <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades.dmg" class="hover:underline text-slate-300">macOS (.dmg)</a>
-                </div>
-            </div>
+<!-- ============ hero ============ -->
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">For students &middot; Windows &amp; Mac</span>
+      <h1>Your Schoology grades, <span>one click away.</span></h1>
+      <p class="lead">Schoology Grade Checker signs in for you, reads every class at the same time, and opens a clean report in a little window. No more clicking into each course.</p>
+      <div class="cta">
+        <a id="dl" class="btn btn-primary" href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-Setup.exe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
+          <span id="dl-text">Download for Windows</span>
+        </a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+      <p class="meta">
+        <span id="version-line">Free</span> &middot; Needs Google Chrome<br>
+        <span id="other-os">Also for <a id="dl-other" href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades.dmg">Mac (Apple Silicon)</a>
+        <span id="dl-portable">&middot; <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-portable.zip">Windows without installing</a></span></span>
+      </p>
+      <p id="mobile-note" class="notice" role="status">This is a desktop program. Open this page on a Windows PC or a Mac to download it.</p>
+      <p id="mac-note" class="notice" role="status">Not sure which Mac you have? Choose the Apple menu, then <strong>About This Mac</strong>. If it says <strong>Chip: Apple M1</strong> (or M2, M3...) this download is for you. Older Macs with an Intel processor aren't supported yet.</p>
+      <p id="release-note" class="notice" role="status">The first release isn't published yet. Check back soon.</p>
+    </div>
 
-            <!-- Preview Card Window Mockup -->
-            <div class="mt-16 max-w-4xl mx-auto rounded-2xl border border-slate-700/60 bg-slate-800/80 shadow-2xl overflow-hidden backdrop-blur text-left">
-                <!-- Window Title Bar -->
-                <div class="bg-slate-800 px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
-                    <div class="flex items-center space-x-2">
-                        <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
-                        <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-                        <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
-                        <span class="ml-2 text-xs text-slate-400 font-mono">Grade Report — Preview</span>
-                    </div>
-                    <div class="text-xs text-slate-400">Verified System Report</div>
-                </div>
+    <div class="mock" aria-label="A sample of the report the program shows" role="img">
+      <div class="mock-top">
+        <div><h2>&#128202; Grade Report</h2><p class="sub">Checked Nov 2, 2026 at 3:42 PM</p></div>
+        <span class="dot" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg></span>
+      </div>
+      <table aria-hidden="true">
+        <thead><tr><th>Course</th><th>Schoology %</th><th>Official Grade</th></tr></thead>
+        <tbody>
+          <tr><td>Algebra 2</td><td>94.62%</td><td class="g">A</td></tr>
+          <tr><td>English 10</td><td>91.05%</td><td class="g">A-</td></tr>
+          <tr><td>Chemistry</td><td>87.3%</td><td class="g">B+</td></tr>
+          <tr><td>U.S. History</td><td>96.4%</td><td class="g">A</td></tr>
+          <tr><td>Band</td><td>100.0%</td><td class="g">A</td></tr>
+        </tbody>
+      </table>
+      <p class="foot">Schoology Grade Checker</p>
+    </div>
+  </div>
+</div>
 
-                <!-- Window Content -->
-                <div class="p-6 bg-slate-900/90 font-sans">
-                    <div class="flex items-center justify-between pb-6 border-b border-slate-800">
-                        <div>
-                            <h3 class="text-xl font-bold text-white">Grade Report</h3>
-                            <p class="text-xs text-slate-400 mt-1">Checked Nov 1, 2026 at 07:30 PM</p>
-                        </div>
-                        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Session Active
-                        </span>
-                    </div>
+<!-- ============ how it works ============ -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="t">Three steps, and the last one takes seconds.</h2>
+      <p>You set it up once. After that, checking your grades is a single click.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><h3>Install it</h3><p>Download the installer for your computer and run it. The installer opens Setup for you when it's done.</p></div>
+      <div class="step"><h3>Choose your classes</h3><p>Sign in once in Setup. It finds your classes on Schoology and you tick the ones you want. That's it.</p></div>
+      <div class="step"><h3>Check your grades</h3><p>Open Schoology Grades any time. A small report window shows every class, and it's usually ready in under ten seconds.</p></div>
+    </div>
+  </div>
+</section>
 
-                    <!-- Table Preview -->
-                    <div class="mt-4 overflow-x-auto">
-                        <table class="w-full text-sm text-left">
-                            <thead class="text-xs text-slate-400 uppercase bg-slate-800/50">
-                                <tr>
-                                    <th class="px-4 py-3 rounded-l-lg">Course</th>
-                                    <th class="px-4 py-3 text-center">Schoology %</th>
-                                    <th class="px-4 py-3 text-center rounded-r-lg">Official Grade</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-800 text-slate-300">
-                                <tr>
-                                    <td class="px-4 py-3 font-medium text-white">Adv Geometry</td>
-                                    <td class="px-4 py-3 text-center font-mono">98.40%</td>
-                                    <td class="px-4 py-3 text-center font-bold text-slate-200">A</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 font-medium text-white">AP Physics A</td>
-                                    <td class="px-4 py-3 text-center font-mono">94.15%</td>
-                                    <td class="px-4 py-3 text-center font-bold text-slate-200">A-</td>
-                                </tr>
-                                <tr>
-                                    <td class="px-4 py-3 font-medium text-white">AP Chemistry</td>
-                                    <td class="px-4 py-3 text-center font-mono">89.50%</td>
-                                    <td class="px-4 py-3 text-center font-bold text-slate-200">B+</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
+<!-- ============ features ============ -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="t">Small, quick, and easy on the eyes.</h2>
+      <p>Everything it does is in service of getting you the number you came for.</p>
+    </div>
+    <div class="grid3">
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <h3>Every class at once</h3><p>All your classes load side by side instead of one after another, so checking six classes takes only a little longer than checking one.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg></div>
+        <h3>Light, dark, or automatic</h3><p>The report follows your computer's theme, and a little sun/moon button in its corner lets you pick. It remembers your choice.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h6"/><path d="M17 15l2 2 4-4"/></svg></div>
+        <h3>It finds your classes</h3><p>No copying links. Setup signs in, lists the classes on your Schoology dashboard, and you just click the ones you want.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg></div>
+        <h3>Problems in plain words</h3><p>If something goes wrong, it tells you what happened and what to click: "Can't reach the internet", "The sign-in didn't work", and so on.</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg></div>
+        <h3>Stays on your computer</h3><p>There's no account and no server of ours. It talks only to Schoology and your school's sign-in, to GitHub (to check for updates), and to Google (for a small Chrome helper).</p></div>
+      <div class="card"><div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div>
+        <h3>Exact percent, familiar letters</h3><p>You see the percent to the hundredth, just as Schoology shows it. The letter grade is worked out from the rounded percent.</p></div>
+    </div>
+  </div>
+</section>
 
-        <!-- Feature Highlights -->
-        <section id="features" class="py-16 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto border-t border-slate-800">
-            <div class="text-center mb-12">
-                <h2 class="text-3xl font-bold text-white">Built for Speed and Reliability</h2>
-                <p class="mt-2 text-slate-400">Everything you need to track grades without ridiculous amounts of effort.</p>
-            </div>
+<!-- ============ install ============ -->
+<section id="install">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="t">Install it.</h2>
+      <p>Python isn't needed. You do need <a href="https://www.google.com/chrome/" rel="noopener">Google Chrome</a>, because that's how the program signs in for you.</p>
+    </div>
+    <div class="os">
+      <div class="card">
+        <h3>Windows 10 or 11</h3>
+        <a class="btn btn-primary" style="font-size:15px;padding:11px 18px" href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-Setup.exe">Download the installer</a>
+        <ol>
+          <li><strong>Open the downloaded file.</strong> If Windows says it "protected your PC", click <kbd>More info</kbd>, then <kbd>Run anyway</kbd>. (The program isn't signed with a paid certificate, so Windows is cautious.)</li>
+          <li><strong>Follow the steps.</strong> You don't need administrator rights.</li>
+          <li><strong>Setup opens at the end.</strong> Sign in and pick your classes.</li>
+        </ol>
+        <p class="small">Prefer not to install? <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-portable.zip">Download the portable version</a>: two programs you can run from any folder.</p>
+      </div>
+      <div class="card">
+        <h3>Mac (Apple Silicon)</h3>
+        <a class="btn btn-primary" style="font-size:15px;padding:11px 18px" href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades.dmg">Download the disk image</a>
+        <ol>
+          <li><strong>Open the .dmg</strong> and drag <em>both</em> apps onto the Applications folder.</li>
+          <li><strong>Open Schoology Setup.</strong> macOS blocks it the first time, because the apps aren't signed with a paid Apple certificate. Click <kbd>Done</kbd>, open <kbd>System Settings</kbd> &rarr; <kbd>Privacy &amp; Security</kbd>, scroll down, and click <kbd>Open Anyway</kbd>.</li>
+          <li><strong>Do the same for Schoology Grades</strong>, then pick your classes in Setup.</li>
+        </ol>
+        <p class="small">For M1 chips and newer. Not sure? Apple menu &rarr; About This Mac.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
-            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <!-- Feature 1 -->
-                <div class="bg-slate-800/40 p-6 rounded-xl border border-slate-800 hover:border-slate-700 transition-all">
-                    <div class="w-10 h-10 rounded-lg bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 mb-4">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                        </svg>
-                    </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Parallel Scanning</h3>
-                    <p class="text-sm text-slate-400">Loads all selected course pages in parallel tabs simultaneously, reducing total check time to seconds. All in the background.</p>
-                </div>
+<!-- ============ privacy ============ -->
+<section id="privacy">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 class="t">What happens to my password?</h2>
+      <p>Straight answers, because it's a fair question.</p>
+    </div>
+    <div class="privacy">
+      <div class="card">
+        <h3>How it works</h3>
+        <ul>
+          <li>The program signs in to Schoology the way you would: in a hidden Chrome window, on your own computer.</li>
+          <li>It connects to your school's Schoology site and the sign-in page your school uses, to github.com to see whether a newer version exists, and (the first time, and after Chrome updates) to Google to download the small helper that lets the program control Chrome. There's nothing else, and no analytics.</li>
+          <li>Your email and password are saved in a file called <code>config.json</code> in the program's <code>data</code> folder, as plain text. So use it only on a computer you trust, and don't share that folder.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Good to know</h3>
+        <ul>
+          <li><strong>It's unofficial.</strong> It isn't made by, or connected to, Schoology, PowerSchool or any school. Your school's own gradebook is the official record.</li>
+          <li><strong>Check your school's rules</strong> on automated tools before you use it.</li>
+          <li><strong>To remove everything,</strong> uninstall the program and delete its <code>data</code> folder. That erases the saved sign-in.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
 
-                <!-- Feature 2 -->
-                <div class="bg-slate-800/40 p-6 rounded-xl border border-slate-800 hover:border-slate-700 transition-all">
-                    <div class="w-10 h-10 rounded-lg bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 mb-4">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                        </svg>
-                    </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Dark Mode Support</h3>
-                    <p class="text-sm text-slate-400">Generated reports automatically switch themes based on your system preferences or manually chosen toggle.</p>
-                </div>
+<!-- ============ faq ============ -->
+<section id="faq">
+  <div class="wrap" style="max-width:800px">
+    <div class="sec-head"><h2 class="t">Questions</h2></div>
+    <details><summary>My school wants me to approve the sign-in on my phone.</summary>
+      <p>In Setup, tick <strong>"Show the browser while signing in"</strong>. A Chrome window opens so you can approve the sign-in once, and after that it usually remembers you.</p></details>
+    <details><summary>The grades look different from my school's gradebook.</summary>
+      <p>The program shows what Schoology shows right now. The letter grade is worked out from the rounded percent using a standard scale, so it's an estimate. Your school's gradebook is the official record.</p></details>
+    <details><summary>Does it work on an Intel Mac, Linux, or a Chromebook?</summary>
+      <p>Not right now. The Mac download is for Apple Silicon Macs (M1 and newer), and the other download is for Windows 10 and 11.</p></details>
+    <details><summary>I changed classes. How do I update the list?</summary>
+      <p>Open Schoology Setup again, sign in, and tick your new classes. Your old choices stay ticked unless you change them.</p></details>
+    <details><summary>How do I know when there's a new version?</summary>
+      <p>A banner appears at the top of the report. Download the new installer and run it over the old one. Your saved sign-in and classes are kept.</p></details>
+    <details><summary>It says Chrome couldn't start.</summary>
+      <p>Click <strong>Try again</strong>. If it keeps happening, restart your computer. If the program is in a folder that OneDrive syncs, pausing OneDrive or moving the folder usually fixes it.</p></details>
+    <details><summary>On a Mac it says it can't find my settings.</summary>
+      <p>That happens when the apps are opened straight from the Downloads folder or the disk image. Drag both apps into Applications first, then open them from there.</p></details>
+    <details><summary>How do I uninstall it?</summary>
+      <ul><li><strong>Windows:</strong> Settings &rarr; Apps, find Schoology Grade Checker, and click Uninstall. It asks whether to keep your saved settings.</li>
+      <li><strong>Mac:</strong> drag both apps to the Trash, and delete the <code>SchoologyGrades</code> folder in <code>~/Library/Application Support</code> if you want the saved settings gone too.</li></ul></details>
+  </div>
+</section>
+</main>
 
-                <!-- Feature 3 -->
-                <div class="bg-slate-800/40 p-6 rounded-xl border border-slate-800 hover:border-slate-700 transition-all">
-                    <div class="w-10 h-10 rounded-lg bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 mb-4">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                        </svg>
-                    </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">Our Grade Scale</h3>
-                    <p class="text-sm text-slate-400">The grading scale is adjusted exactly to how Lynden Christian reports grades.</p>
-                </div>
+<footer>
+  <div class="wrap foot-row">
+    <p>Schoology Grade Checker is an independent project. It isn't affiliated with Schoology, PowerSchool or any school. No open-source license has been chosen yet, so all rights are reserved by the author.</p>
+    <div class="foot-links">
+      <a href="https://github.com/lukehilt11-cpu/SchoologyGrades" rel="noopener">GitHub</a>
+      <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/tree/main/source" rel="noopener">Source code</a>
+      <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases" rel="noopener">All releases</a>
+    </div>
+  </div>
+</footer>
 
-                <!-- Feature 4 -->
-                <div class="bg-slate-800/40 p-6 rounded-xl border border-slate-800 hover:border-slate-700 transition-all">
-                    <div class="w-10 h-10 rounded-lg bg-brand-500/10 border border-brand-500/20 flex items-center justify-center text-brand-400 mb-4">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                        </svg>
-                    </div>
-                    <h3 class="text-lg font-semibold text-white mb-2">One-Click Setup</h3>
-                    <p class="text-sm text-slate-400">Interactive setup wizard automatically discovers enrolled classes from your dashboard for easy selection.</p>
-                </div>
-            </div>
-        </section>
+<script>
+(function () {
+  /* ---- theme: Auto -> Light -> Dark, remembered ---- */
+  var KEY = "sgTheme", root = document.documentElement, order = ["auto", "light", "dark"];
+  var names = { auto: "Auto (follows your system)", light: "Light", dark: "Dark" };
+  function load() { try { var v = localStorage.getItem(KEY); return order.indexOf(v) >= 0 ? v : "auto"; } catch (e) { return "auto"; } }
+  function save(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
+  function apply(mode) {
+    if (mode === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", mode);
+    var btn = document.getElementById("theme");
+    btn.setAttribute("data-mode", mode);
+    btn.title = "Theme: " + names[mode] + " (click to change)";
+    btn.setAttribute("aria-label", btn.title);
+  }
+  apply(load());
+  document.getElementById("theme").addEventListener("click", function () {
+    var next = order[(order.indexOf(load()) + 1) % order.length]; save(next); apply(next);
+  });
 
-        <!-- Installation / Quick Start -->
-        <section id="install" class="py-16 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto border-t border-slate-800">
-            <div class="text-center mb-10">
-                <h2 class="text-3xl font-bold text-white">Quick Start Guide</h2>
-                <p class="mt-2 text-slate-400">Get up and running in 3 simple steps.</p>
-            </div>
+  /* ---- which download to offer ---- */
+  var REPO = "lukehilt11-cpu/SchoologyGrades";
+  var BASE = "https://github.com/" + REPO + "/releases/latest/download/";
+  var ua = navigator.userAgent || "";
+  var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var iPadAsMac = /Mac/i.test(plat + ua) && navigator.maxTouchPoints > 1;       /* iPads say they are Macs */
+  var mobile = /Android|iPhone|iPad|iPod/i.test(ua) || iPadAsMac;
+  var mac = !mobile && /Mac/i.test(plat + ua);
+  var dl = document.getElementById("dl"), dlText = document.getElementById("dl-text"), other = document.getElementById("dl-other");
+  function show(id, on) { var el = document.getElementById(id); if (el) el.classList[on ? "add" : "remove"]("show"); }
+  if (mac) {
+    dl.href = BASE + "SchoologyGrades.dmg"; dlText.textContent = "Download for Mac";
+    other.href = BASE + "SchoologyGrades-Setup.exe"; other.textContent = "Windows";
+    document.getElementById("dl-portable").hidden = true; show("mac-note", true);
+  }
+  show("mobile-note", mobile);
 
-            <div class="grid md:grid-cols-3 gap-6 mb-12">
-                <div class="bg-slate-800/30 p-6 rounded-xl border border-slate-800 text-center">
-                    <div class="w-8 h-8 rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mx-auto mb-3">1</div>
-                    <h4 class="font-semibold text-white mb-1">Download</h4>
-                    <p class="text-xs text-slate-400">Download the setup file automatically matched for your operating system.</p>
-                </div>
-
-                <div class="bg-slate-800/30 p-6 rounded-xl border border-slate-800 text-center">
-                    <div class="w-8 h-8 rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mx-auto mb-3">2</div>
-                    <h4 class="font-semibold text-white mb-1">Run Setup</h4>
-                    <p class="text-xs text-slate-400">Open Setup to log in once and pick the classes you wish to track.</p>
-                </div>
-
-                <div class="bg-slate-800/30 p-6 rounded-xl border border-slate-800 text-center">
-                    <div class="w-8 h-8 rounded-full bg-brand-600 text-white font-bold flex items-center justify-center mx-auto mb-3">3</div>
-                    <h4 class="font-semibold text-white mb-1">View Grades</h4>
-                    <p class="text-xs text-slate-400">Launch Grade Checker anytime for a fresh report card.</p>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <!-- Footer -->
-    <footer class="border-t border-slate-800 py-8 bg-slate-950">
-        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400">
-            <p>Schoology Grade Checker. No license specified.</p>
-            <div class="flex items-center space-x-4 mt-4 sm:mt-0">
-                <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/tree/main/source" target="_blank" rel="noopener" class="hover:text-slate-200 transition-colors">Source Code</a>
-                <a href="https://github.com/lukehilt11-cpu/SchoologyGrades/releases" target="_blank" rel="noopener" class="hover:text-slate-200 transition-colors">Releases</a>
-            </div>
-        </div>
-    </footer>
-
-    <!-- Smart OS Download Detection Script -->
-    <script>
-        const WIN_URL = "https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades-Setup.exe";
-        const MAC_URL = "https://github.com/lukehilt11-cpu/SchoologyGrades/releases/latest/download/SchoologyGrades.dmg";
-
-        function checkIsMac() {
-            const platform = navigator.platform || '';
-            const userAgent = navigator.userAgent || '';
-            return platform.toUpperCase().indexOf('MAC') >= 0 || userAgent.indexOf('Macintosh') > -1;
-        }
-
-        function downloadApp() {
-            window.location.href = checkIsMac() ? MAC_URL : WIN_URL;
-        }
-
-        // Initialize OS detection text on page load
-        document.addEventListener("DOMContentLoaded", function() {
-            const isMac = checkIsMac();
-            const btnText = document.getElementById("download-btn-text");
-            const osText = document.getElementById("detected-os-text");
-
-            if (btnText) {
-                btnText.textContent = isMac ? "Download for macOS (.dmg)" : "Download for Windows (.exe)";
-            }
-            if (osText) {
-                osText.textContent = isMac ? "Detected: macOS" : "Detected: Windows";
-            }
-        });
-    </script>
-
+  /* ---- show the newest version number (quietly; the page works without it) ---- */
+  function showVersion(v, date) {
+    var line = document.getElementById("version-line");
+    line.textContent = "Version " + v + (date ? " (" + date + ")" : "") + " \u00b7 Free";
+  }
+  try {
+    var cached = JSON.parse(sessionStorage.getItem("sgRelease") || "null");
+    if (cached) showVersion(cached.v, cached.d);
+    else fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (r) { if (r.status === 404) { show("release-note", true); return null; } return r.ok ? r.json() : null; })
+      .then(function (j) {
+        if (!j || !j.tag_name) return;
+        var v = String(j.tag_name).replace(/^v/i, "");
+        var d = j.published_at ? new Date(j.published_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+        showVersion(v, d); try { sessionStorage.setItem("sgRelease", JSON.stringify({ v: v, d: d })); } catch (e) {}
+      })
+      .catch(function () {});
+  } catch (e) {}
+})();
+</script>
 </body>
 </html>
