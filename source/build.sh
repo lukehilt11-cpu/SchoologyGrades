@@ -95,6 +95,13 @@ else
     echo "[2/6] Drawing icons..."
     run "$PY" make_icons.py
 fi
+for f in grades.icns grades_256.png grades_64.png setup.icns setup_256.png; do
+    if [ ! -f "icons/$f" ]; then
+        echo "The icon file icons/$f is missing, and drawing the icons didn't create it."
+        echo "Is make_icons.py in the same folder as build.sh?"
+        fail
+    fi
+done
 
 # ---- 3/6 the programs
 echo "[3/6] Building programs (a minute or two)..."

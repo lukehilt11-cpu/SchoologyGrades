@@ -38,6 +38,7 @@ from sgcommon import (
     TRANSLOCATED,
     FriendlyError,
     Timeline,
+    add_help_menu,
     app_version,
     check_for_update,
     close_browser,
@@ -46,10 +47,12 @@ from sgcommon import (
     log_error,
     log_in,
     make_driver,
+    offer_update,
     open_app_window,
     resource_path,
     set_window_icon,
     show_error_dialog,
+    update_prompt_snoozed,
     wait_until,
 )
 
@@ -561,6 +564,7 @@ DARK_VARS = """
   --head: #222630; --head-text: #aeb4c2; --official: #c3c8d4; --custom: #7fb0ff;
   --shadow: 0 6px 28px rgba(0,0,0,.45); --btn: #262a34; --btn-hover: #323744;
   --upd-bg: #2a2f55; --upd-fg: #c3caff;
+  --note-bg: #3a2f12; --note-fg: #f3d9a4;
 """
 
 REPORT_TEMPLATE = r"""<!DOCTYPE html>
@@ -580,7 +584,7 @@ REPORT_TEMPLATE = r"""<!DOCTYPE html>
   --bg: #f3f4f8; --card: #ffffff; --text: #1d1d1f; --muted: #6b7280; --line: #e8eaf0;
   --head: #f1f3f9; --head-text: #4b5563; --official: #4b5563; --custom: #2563eb;
   --shadow: 0 6px 28px rgba(15,23,42,.09); --btn: #eef0f6; --btn-hover: #e2e5ef;
-  --upd-bg: #eef2ff; --upd-fg: #3730a3;
+  --upd-bg: #eef2ff; --upd-fg: #3730a3; --note-bg: #fff4d6; --note-fg: #6b4a05;
 }
 :root[data-theme="dark"] {__DARK__}
 @media (prefers-color-scheme: dark) {
@@ -610,18 +614,24 @@ td:first-child { text-align: left; font-weight: 500; }
 tr:last-child td { border-bottom: 0; }
 td.official { font-weight: 700; color: var(--official); }
 td.custom { font-weight: 700; color: var(--custom); }
+td:first-child a { color: inherit; text-decoration: none; border-bottom: 1px dashed var(--line); }
+td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom); }
+.note { margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 600;
+  background: var(--note-bg); color: var(--note-fg); }
+.cheer { margin: 6px 0 0; font-size: 13.5px; font-weight: 700; color: var(--custom); }
 .update { display: block; margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; text-align: center;
   background: var(--upd-bg); color: var(--upd-fg); font-size: 13px; font-weight: 600; text-decoration: none; }
 .update:hover { filter: brightness(1.06); }
 .foot { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; text-align: center; }
 </style>
 </head>
-<body>
+<body data-cheer="__CHEERFLAG__">
 <div class="card">
   <div class="top">
     <div>
       <h2>&#128202; Grade Report</h2>
       <p class="sub">Checked __CHECKED__</p>
+      __CHEER__
     </div>
     <button id="theme" type="button" data-mode="auto" title="Theme">
       <svg class="i-auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
@@ -629,6 +639,7 @@ td.custom { font-weight: 700; color: var(--custom); }
       <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/></svg>
     </button>
   </div>
+  __NOTICE__
   __UPDATE__
   <table>
     <thead><tr>__HEADERS__</tr></thead>
@@ -656,6 +667,33 @@ td.custom { font-weight: 700; color: var(--custom); }
   });
 })();
 </script>
+<script>
+/* a short, quiet burst of confetti when every class is an A */
+(function () {
+  if (document.body.getAttribute("data-cheer") !== "1") return;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var c = document.createElement("canvas");
+  c.style.cssText = "position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:9";
+  document.body.appendChild(c);
+  var W = c.width = window.innerWidth, H = c.height = window.innerHeight, ctx = c.getContext("2d");
+  var colors = ["#5e5ce6", "#12bcf0", "#fbbf24", "#f43f5e", "#34d399"], bits = [], i;
+  for (i = 0; i < 90; i++) bits.push({ x: W / 2 + (Math.random() - .5) * W * .3, y: H * .3, vx: (Math.random() - .5) * 9,
+    vy: -Math.random() * 9 - 3, r: Math.random() * 5 + 3, c: colors[i % 5], a: Math.random() * 6.28, va: (Math.random() - .5) * .4 });
+  var t0 = null;
+  function frame(t) {
+    if (t0 === null) t0 = t;
+    var age = t - t0;
+    ctx.clearRect(0, 0, W, H);
+    bits.forEach(function (p) {
+      p.vy += .28; p.x += p.vx; p.y += p.vy; p.a += p.va;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.fillStyle = p.c;
+      ctx.globalAlpha = Math.max(0, 1 - age / 2600); ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); ctx.restore();
+    });
+    if (age < 2600) requestAnimationFrame(frame); else c.remove();
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
 </body>
 </html>
 """
@@ -669,7 +707,41 @@ def favicon_data():
         return ""
 
 
-def write_report(results, use_custom, update=None):
+LAST_REPORT_FILE = "last_report.json"
+# Errors where showing older grades wouldn't help or make sense.
+NO_SAVED_GRADES_KINDS = {"chrome_missing", "bad_config", "translocated", "needs_setup", "dev"}
+
+
+def is_straight_a(results):
+    """True if every class that has a grade is an A (A+, A or A-), and at least one does."""
+    graded = [r["official"] for r in results if r.get("pct") != "N/A"]
+    return bool(graded) and all(str(letter).startswith("A") for letter in graded)
+
+
+def save_last_report(results, use_custom):
+    """Keep the newest successful grades, so there's something to show when Schoology can't be reached."""
+    try:
+        with open(LAST_REPORT_FILE, "w", encoding="utf-8") as f:
+            json.dump({"saved": time.time(), "use_custom": use_custom, "results": results}, f)
+    except OSError:
+        pass
+
+
+def load_last_report():
+    """(results, use_custom, saved_time) from the last successful check, or None."""
+    try:
+        with open(LAST_REPORT_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        results = data["results"]
+        if isinstance(results, list) and results:
+            return results, bool(data.get("use_custom")), float(data["saved"])
+    except Exception:
+        pass
+    return None
+
+
+def write_report(results, use_custom, update=None, saved_time=None):
+    """Write grade_report.html. saved_time: these are older, saved grades (Schoology couldn't be reached)."""
     headers = "<th>Course</th><th>Schoology %</th><th>Official Grade</th>"
     if use_custom:
         headers += "<th>Custom Grade</th>"
@@ -677,8 +749,11 @@ def write_report(results, use_custom, update=None):
     rows = ""
     for d in results:
         pct = f"{d['pct']}%" if isinstance(d["pct"], (int, float)) else html.escape(str(d["pct"]))
+        name = html.escape(d["name"])
+        if d.get("url"):  # click a class to open it on Schoology
+            name = f"<a href='{html.escape(d['url'], quote=True)}' target='_blank' rel='noopener' title='Open on Schoology'>{name}</a>"
         rows += (
-            f"<tr><td>{html.escape(d['name'])}</td><td>{pct}</td>"
+            f"<tr><td>{name}</td><td>{pct}</td>"
             f"<td class='official'>{html.escape(d['official'])}</td>"
         )
         if use_custom:
@@ -687,16 +762,28 @@ def write_report(results, use_custom, update=None):
 
     banner = ""
     if update:
+        notes = html.escape((update.get("notes") or "").strip()[:160])
         banner = (
             f"<a class='update' href='{html.escape(update['url'], quote=True)}' target='_blank' rel='noopener'>"
-            f"&#11014; Version {html.escape(update['version'])} is available. Download it</a>"
+            f"&#11014; Version {html.escape(update['version'])} is available"
+            f"{': ' + notes if notes else '.'} Download it</a>"
         )
 
+    notice, checked_at = "", datetime.now()
+    if saved_time is not None:
+        checked_at = datetime.fromtimestamp(saved_time)
+        when = f"{checked_at:%b %d at %I:%M %p}".replace(" 0", " ")
+        notice = f"<p class='note'>Couldn't check Schoology just now. These are the grades saved on {when}.</p>"
+
+    cheer = is_straight_a(results) and saved_time is None
     page = (
         REPORT_TEMPLATE
         .replace("__DARK__", DARK_VARS)
         .replace("__FAVICON__", favicon_data())
-        .replace("__CHECKED__", f"{datetime.now():%b %d, %Y at %I:%M %p}".replace(" 0", " "))
+        .replace("__CHECKED__", f"{checked_at:%b %d, %Y at %I:%M %p}".replace(" 0", " "))
+        .replace("__CHEERFLAG__", "1" if cheer else "0")
+        .replace("__CHEER__", "<p class='cheer'>Straight A's! &#127881;</p>" if cheer else "")
+        .replace("__NOTICE__", notice)
         .replace("__UPDATE__", banner)
         .replace("__HEADERS__", headers)
         .replace("__ROWS__", rows)
@@ -739,8 +826,12 @@ def worker(root, status_label, on_ok, on_error):
         results, use_custom = scrape_all(config, status)
         status("Generating report card...")
         checker.join(timeout=1.5)
-        path = write_report(results, use_custom, update.get("info"))
-        root.after(0, lambda: on_ok(path, len(results)))
+        for result, url in zip(results, dict.fromkeys(config["class_urls"])):
+            result["url"] = url  # lets the report link each class to Schoology
+        save_last_report(results, use_custom)
+        info = update.get("info")
+        path = write_report(results, use_custom, info)
+        root.after(0, lambda: on_ok(path, len(results), info))
     except Exception as e:
         friendly = explain(e)
         if friendly.kind != "needs_setup":  # not really an error: they just haven't set up yet
@@ -786,7 +877,7 @@ def main():
                 parent=root,
             )
 
-    def on_ok(path, rows):
+    def on_ok(path, rows, info=None):
         status_label.config(text="Opening your report...")
         try:
             show_report(path, rows)
@@ -797,7 +888,23 @@ def main():
                 f"Your grades were checked, but the report window couldn't open.\n\nYou can open the file yourself:\n{path}",
                 parent=root,
             )
+        if info and not update_prompt_snoozed(info["version"]):
+            # Offer the update once the report window has had a moment to appear.
+            def prompt():
+                if not offer_update(root, info):
+                    root.destroy()
+            root.after(1300, prompt)
+            return
         root.after(900, root.destroy)  # give the report window a moment to appear first
+
+    def show_saved_grades(saved):
+        results, use_custom, saved_time = saved
+        status_label.config(text="Opening your saved grades...")
+        try:
+            show_report(write_report(results, use_custom, None, saved_time), len(results))
+        except Exception:
+            log_error(traceback.format_exc())
+        root.after(900, root.destroy)
 
     def on_error(friendly):
         if friendly.kind == "needs_setup":  # first run: go straight to Setup
@@ -805,9 +912,15 @@ def main():
             open_setup()
             root.after(600, root.destroy)
             return
+        saved = load_last_report()
+        if saved and friendly.kind not in NO_SAVED_GRADES_KINDS and "show_saved" not in friendly.actions:
+            friendly.actions = friendly.actions + ("show_saved",)
         choice = show_error_dialog(root, friendly, "grades")
         if choice == "try_again":
             start_check()
+            return
+        if choice == "show_saved" and saved:
+            show_saved_grades(saved)
             return
         if choice == "open_setup":
             open_setup()
@@ -817,6 +930,7 @@ def main():
         status_label.config(text="Initializing...")
         threading.Thread(target=worker, args=(root, status_label, on_ok, on_error), daemon=True).start()
 
+    add_help_menu(root)
     root.protocol("WM_DELETE_WINDOW", ask_to_close)
     try:
         root.createcommand("tk::mac::Quit", quit_now)  # macOS: Cmd-Q and Dock > Quit

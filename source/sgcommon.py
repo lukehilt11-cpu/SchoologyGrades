@@ -6,12 +6,15 @@ Selenium itself is imported on first use, so program windows open instantly.
 """
 
 import atexit
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -144,17 +147,19 @@ def set_window_icon(root, name):
 
 
 # --------------------------------------------------------------------------
-# "A newer version is available" notice
+# "A newer version is available" notice, and "Update now"
 # --------------------------------------------------------------------------
 UPDATE_BASE = "https://github.com"
 UPDATE_CHECK_HOURS = 12  # how long to remember the answer, so GitHub is asked rarely
+UPDATE_ALLOWED_HOSTS = set()  # extra download hosts (only ever filled in by tests)
+DEFAULT_REPO = "lukehilt11-cpu/SchoologyGrades"  # used for Help links when there is no REPO file
 
 
 def read_repo():
     """The GitHub repository releases are published to, as "owner/name", or "".
 
     It comes from a small file named REPO that the GitHub build adds automatically.
-    Without that file (a local build) the update notice is simply switched off.
+    Without that file (a local build) the automatic update notice is switched off.
     """
     try:
         with open(resource_path("REPO"), "r", encoding="utf-8") as f:
@@ -164,9 +169,51 @@ def read_repo():
     return repo if re.fullmatch(r"[\w.\-]+/[\w.\-]+", repo) else ""
 
 
+def repo_or_default():
+    return read_repo() or DEFAULT_REPO
+
+
+def releases_url():
+    return f"{UPDATE_BASE}/{repo_or_default()}/releases"
+
+
+def website_url():
+    owner, name = repo_or_default().split("/", 1)
+    return f"https://{owner}.github.io/{name}/"
+
+
 def _version_key(text):
     """'v1.10.2' -> (1, 10, 2), so that 1.10 counts as newer than 1.9."""
     return tuple(int(n) for n in re.findall(r"\d+", text or ""))[:4]
+
+
+def _host_allowed(host):
+    host = (host or "").lower()
+    return (
+        host == "github.com" or host.endswith(".github.com") or host.endswith(".githubusercontent.com")
+        or host in UPDATE_ALLOWED_HOSTS
+    )
+
+
+def _url_allowed(url):
+    parts = urllib.parse.urlparse(url)
+    return _host_allowed(parts.hostname) and (parts.scheme == "https" or parts.hostname in UPDATE_ALLOWED_HOSTS)
+
+
+class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+    """Follows redirects, but only to GitHub's own addresses."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _url_allowed(newurl):
+            raise urllib.error.URLError("redirected to an address that isn't allowed")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open_safe(url, timeout):
+    if not _url_allowed(url):
+        raise urllib.error.URLError("address isn't allowed")
+    request = urllib.request.Request(url, headers={"User-Agent": "SchoologyGradeChecker"})
+    return urllib.request.build_opener(_SafeRedirect).open(request, timeout=timeout)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -197,35 +244,189 @@ def _latest_release_tag(repo, timeout=3):
     return None
 
 
-def check_for_update():
-    """{"version", "url"} if a newer release exists, otherwise None. Never raises, never slow."""
+def fetch_release_info(repo, timeout=4):
+    """The small latest.json the build publishes: what's new, and a checksum for each download."""
     try:
-        repo = read_repo()
+        with _open_safe(f"{UPDATE_BASE}/{repo}/releases/latest/download/latest.json", timeout) as r:
+            data = json.loads(r.read(200_000).decode("utf-8"))
+        files = {}
+        for name, meta in (data.get("files") or {}).items():
+            if (isinstance(meta, dict) and isinstance(meta.get("size"), int)
+                    and re.fullmatch(r"[0-9a-f]{64}", str(meta.get("sha256", "")).lower())):
+                files[str(name)] = {"sha256": str(meta["sha256"]).lower(), "size": meta["size"]}
+        return {"version": str(data.get("version", "")), "notes": str(data.get("notes", "")).strip()[:600], "files": files}
+    except Exception:
+        return None
+
+
+def _check_for_update(force=False):
+    """("update", info) | ("current", None) | ("unknown", None)."""
+    try:
+        repo = read_repo() or (DEFAULT_REPO if force else "")
         current = _version_key(app_version())
         if not repo or not current:
-            return None
-        latest = None
+            return "unknown", None
+        cache = {}
         try:
             with open("update_check.json", "r", encoding="utf-8") as f:
                 cache = json.load(f)
-            if cache.get("repo") == repo and time.time() - float(cache.get("checked", 0)) < UPDATE_CHECK_HOURS * 3600:
-                latest = str(cache.get("latest", ""))
         except Exception:
             pass
-        if latest is None:
+        fresh = (
+            not force and cache.get("repo") == repo and "latest" in cache
+            and time.time() - float(cache.get("checked", 0)) < UPDATE_CHECK_HOURS * 3600
+        )
+        if fresh:
+            latest, info = str(cache.get("latest", "")), cache.get("info")
+        else:
             latest = _latest_release_tag(repo)
             if latest is None:
-                return None  # couldn't tell just now; try again next time
+                return "unknown", None  # couldn't tell just now
+            info = None
+            if latest and _version_key(latest) > current:
+                meta = fetch_release_info(repo) or {}
+                info = {
+                    "version": latest.lstrip("vV"),
+                    "url": f"{UPDATE_BASE}/{repo}/releases/latest",
+                    "notes": meta.get("notes", ""),
+                    "files": meta.get("files", {}),
+                }
             try:
                 with open("update_check.json", "w", encoding="utf-8") as f:
-                    json.dump({"repo": repo, "checked": time.time(), "latest": latest}, f)
+                    json.dump({"repo": repo, "checked": time.time(), "latest": latest, "info": info}, f)
             except OSError:
                 pass
         if latest and _version_key(latest) > current:
-            return {"version": latest.lstrip("vV"), "url": f"{UPDATE_BASE}/{repo}/releases/latest"}
+            return "update", info or {
+                "version": latest.lstrip("vV"), "url": f"{UPDATE_BASE}/{repo}/releases/latest", "notes": "", "files": {},
+            }
+        return "current", None
     except Exception:
+        return "unknown", None
+
+
+def check_for_update(force=False):
+    """The newer release's info ({"version", "url", "notes", "files"}), or None. Never raises, never slow."""
+    status, info = _check_for_update(force)
+    return info if status == "update" else None
+
+
+def update_prompt_snoozed(version):
+    """True if the person already said "Not now" to this version within the last day."""
+    try:
+        with open("update_prompt.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("version") == version and time.time() < float(data.get("until", 0))
+    except Exception:
+        return False
+
+
+def snooze_update_prompt(version, hours=24):
+    try:
+        with open("update_prompt.json", "w", encoding="utf-8") as f:
+            json.dump({"version": version, "until": time.time() + hours * 3600}, f)
+    except OSError:
         pass
-    return None
+
+
+class UpdateError(Exception):
+    pass
+
+
+UPDATE_ASSETS = {"installer": "SchoologyGrades-Setup.exe", "mac": "SchoologyGrades.dmg"}
+
+
+def install_kind():
+    """How this copy runs: "installer" (Windows installer), "mac", "portable" (loose Windows programs), "source"."""
+    if not getattr(sys, "frozen", False):
+        return "source"
+    if sys.platform == "darwin":
+        return "mac"
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA", "")
+        installed = os.path.join(local, "Programs", "SchoologyGrades") if local else ""
+        if installed and os.path.normcase(os.path.abspath(APP_DIR)).startswith(os.path.normcase(installed)):
+            return "installer"
+        return "portable"
+    return "source"
+
+
+def can_update_in_place(info):
+    name = UPDATE_ASSETS.get(install_kind())
+    return bool(name and name in (info.get("files") or {}) and read_repo())
+
+
+def download_update(info, progress=None, dest_dir=None):
+    """Download this system's installer from the release and check its size and checksum."""
+    name = UPDATE_ASSETS.get(install_kind())
+    meta = (info.get("files") or {}).get(name or "")
+    repo = read_repo()
+    if not name or not meta or not repo:
+        raise UpdateError("an automatic update isn't available for this copy")
+    dest = os.path.join(dest_dir or tempfile.mkdtemp(prefix="sg_update_"), name)
+    digest, got, total = hashlib.sha256(), 0, meta["size"]
+    with _open_safe(f"{UPDATE_BASE}/{repo}/releases/latest/download/{name}", 30) as response, open(dest, "wb") as out:
+        while True:
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            got += len(chunk)
+            if got > total:
+                raise UpdateError("the download is bigger than expected")
+            out.write(chunk)
+            digest.update(chunk)
+            if progress and total:
+                progress(min(1.0, got / total))
+    if got != total:
+        raise UpdateError("the download is incomplete")
+    if digest.hexdigest() != meta["sha256"]:
+        raise UpdateError("the download doesn't match its checksum")
+    return dest
+
+
+MAC_UPDATE_SCRIPT = r"""#!/bin/bash
+# Waits for the running program to quit, copies the new apps over the old ones, then reopens Schoology Grades.
+PID="$1"; DMG="$2"; DEST="$3"
+for i in $(seq 1 60); do kill -0 "$PID" 2>/dev/null || break; sleep 0.5; done
+MNT="$(mktemp -d /tmp/sgupdate.XXXXXX)"
+if ! hdiutil attach -nobrowse -quiet -readonly -mountpoint "$MNT" "$DMG"; then open "$DMG"; exit 1; fi
+ok=1
+for app in SchoologyGrades SchoologySetup; do
+    [ -d "$MNT/$app.app" ] || continue
+    rm -rf "$DEST/$app.app.old"
+    [ -d "$DEST/$app.app" ] && mv "$DEST/$app.app" "$DEST/$app.app.old"
+    if cp -R "$MNT/$app.app" "$DEST/"; then
+        rm -rf "$DEST/$app.app.old"
+    else
+        rm -rf "$DEST/$app.app"
+        [ -d "$DEST/$app.app.old" ] && mv "$DEST/$app.app.old" "$DEST/$app.app"
+        ok=0
+    fi
+done
+hdiutil detach -quiet "$MNT" >/dev/null 2>&1
+rmdir "$MNT" 2>/dev/null
+if [ "$ok" = 1 ]; then open "$DEST/SchoologyGrades.app"; else open "$DMG"; fi
+"""
+
+
+def apply_update(path):
+    """Start installing the downloaded update. The caller must then quit. Returns what happened:
+    "installer" (Windows installer started), "replacing" (a Mac helper will swap the apps), "opened"."""
+    kind = install_kind()
+    if kind == "installer":
+        _spawn([path])
+        return "installer"
+    if kind == "mac":
+        if os.access(APP_DIR, os.W_OK):
+            script = os.path.join(os.path.dirname(path), "update.sh")
+            with open(script, "w", encoding="utf-8") as f:
+                f.write(MAC_UPDATE_SCRIPT)
+            os.chmod(script, 0o755)
+            _spawn(["/bin/bash", script, str(os.getpid()), path, APP_DIR])
+            return "replacing"
+        _spawn(["open", path])  # can't write to the apps' folder: let the person drag them
+        return "opened"
+    raise UpdateError("an automatic update isn't available for this copy")
 
 
 # --------------------------------------------------------------------------
@@ -466,7 +667,7 @@ def explain(exc):
 
 
 def show_error_dialog(root, fe, icon_name="grades"):
-    """A small friendly dialog. Returns "try_again", "open_setup" or "close"."""
+    """A small friendly dialog. Returns "try_again", "open_setup", "show_saved" or "close"."""
     import tkinter as tk
     from tkinter import ttk
 
@@ -505,10 +706,13 @@ def show_error_dialog(root, fe, icon_name="grades"):
         if action == "download_chrome":
             webbrowser.open(CHROME_URL)
             action = "close"
-        choice[0] = action if action in ("try_again", "open_setup") else "close"
+        choice[0] = action if action in ("try_again", "open_setup", "show_saved") else "close"
         win.destroy()
 
-    labels = {"try_again": "Try again", "open_setup": "Open Setup", "download_chrome": "Download Chrome"}
+    labels = {
+        "try_again": "Try again", "open_setup": "Open Setup", "download_chrome": "Download Chrome",
+        "show_saved": "Show saved grades",
+    }
     row = ttk.Frame(frame)
     row.pack(fill="x")
     details_button = ttk.Button(row, text="Show details", command=toggle_details)
@@ -534,6 +738,293 @@ def show_error_dialog(root, fe, icon_name="grades"):
         pass
     root.wait_window(win)
     return choice[0]
+
+
+# --------------------------------------------------------------------------
+# Help menu, update prompt and troubleshooting pages (small Tk dialogs)
+# --------------------------------------------------------------------------
+def open_folder(path):
+    """Show a folder in Explorer / Finder."""
+    try:
+        if os.name == "nt":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            _spawn(["open", path])
+        else:
+            _spawn(["xdg-open", path])
+    except Exception:
+        pass
+
+
+def _center_over(win, root):
+    win.update_idletasks()
+    try:
+        x = root.winfo_rootx() + (root.winfo_width() - win.winfo_reqwidth()) // 2
+        y = root.winfo_rooty() + 30
+        win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+    except Exception:
+        pass
+
+
+class ProgressDialog:
+    """A small window with a message and a progress bar (determinate or not)."""
+
+    def __init__(self, root, title, text):
+        import tkinter as tk
+        from tkinter import ttk
+
+        self.win = tk.Toplevel(root)
+        self.win.title(title)
+        self.win.resizable(False, False)
+        try:
+            self.win.transient(root)
+        except Exception:
+            pass
+        set_window_icon(self.win, "grades")
+        frame = ttk.Frame(self.win, padding=18)
+        frame.pack()
+        self.label = ttk.Label(frame, text=text, wraplength=340, justify="left")
+        self.label.pack(anchor="w")
+        self.bar = ttk.Progressbar(frame, length=340, mode="indeterminate", maximum=100)
+        self.bar.pack(pady=(10, 0))
+        self.bar.start(12)
+        self.win.protocol("WM_DELETE_WINDOW", lambda: None)  # not while it is working
+        _center_over(self.win, root)
+
+    def set(self, text=None, fraction=None):
+        try:
+            if text is not None:
+                self.label.config(text=text)
+            if fraction is not None:
+                if str(self.bar.cget("mode")) != "determinate":
+                    self.bar.stop()
+                    self.bar.config(mode="determinate")
+                self.bar["value"] = max(0.0, min(1.0, fraction)) * 100
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
+
+def _run_update(root, info):
+    """Download the update with a progress bar, then hand over to the installer and quit."""
+    from tkinter import messagebox
+
+    dialog = ProgressDialog(root, "Updating", f"Downloading version {info['version']}...")
+    state = {"progress": 0.0, "done": False, "path": None, "error": None}
+
+    def work():
+        try:
+            state["path"] = download_update(info, progress=lambda f: state.__setitem__("progress", f))
+        except Exception as e:
+            state["error"] = e
+        state["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def fall_back(reason):
+        log_error(f"Update failed: {reason}")
+        if messagebox.askyesno(
+            "Couldn't update automatically",
+            "The update couldn't be installed automatically. Open the download page instead?",
+            parent=root,
+        ):
+            webbrowser.open(info["url"])
+
+    def poll():
+        if not state["done"]:
+            dialog.set(fraction=state["progress"])
+            root.after(100, poll)
+            return
+        dialog.close()
+        if state["error"] is not None:
+            fall_back(repr(state["error"]))
+            return
+        try:
+            result = apply_update(state["path"])
+        except Exception as e:
+            fall_back(repr(e))
+            return
+        if result == "opened":
+            messagebox.showinfo(
+                "Finish the update",
+                "The new version's disk image is open. Drag both apps onto Applications to finish.",
+                parent=root,
+            )
+        close_browser()
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        os._exit(0)  # the installer / helper needs this program to be closed
+
+    root.after(100, poll)
+
+
+def offer_update(root, info):
+    """Tell the person a newer version exists and offer to install it.
+    Returns True if an update was started (the caller must then leave the window open)."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    version = info["version"]
+    win = tk.Toplevel(root)
+    win.title("Update available")
+    win.resizable(False, False)
+    try:
+        win.transient(root)
+    except Exception:
+        pass
+    set_window_icon(win, "grades")
+    frame = ttk.Frame(win, padding=18)
+    frame.pack()
+    ttk.Label(frame, text=f"Version {version} is available", font=("Segoe UI", 13, "bold")).pack(anchor="w")
+    notes = (info.get("notes") or "").strip()
+    ttk.Label(
+        frame, text=notes or "A newer version of Schoology Grade Checker is ready to download.",
+        wraplength=380, justify="left",
+    ).pack(anchor="w", pady=(8, 4))
+    in_place = can_update_in_place(info)
+    if not in_place:
+        ttk.Label(
+            frame, text="Download the new version and run it over this one. Your saved settings are kept.",
+            wraplength=380, justify="left", foreground="#475569",
+        ).pack(anchor="w", pady=(0, 4))
+    row = ttk.Frame(frame)
+    row.pack(fill="x", pady=(14, 0))
+
+    def not_now():
+        snooze_update_prompt(version)
+        win.destroy()
+
+    started = [False]
+
+    def update_now():
+        started[0] = True
+        win.destroy()
+        _run_update(root, info)
+
+    def open_page():
+        webbrowser.open(info["url"])
+        win.destroy()
+
+    ttk.Button(row, text="Not now", command=not_now).pack(side="right")
+    main_button = ttk.Button(row, text="Update now" if in_place else "Open download page",
+                             command=update_now if in_place else open_page)
+    main_button.pack(side="right", padx=(0, 6))
+    main_button.focus_set()
+    ttk.Button(row, text="What's new", command=lambda: webbrowser.open(releases_url())).pack(side="left")
+    win.protocol("WM_DELETE_WINDOW", not_now)
+    _center_over(win, root)
+    try:
+        win.wait_visibility()
+        win.grab_set()
+    except Exception:
+        pass
+    root.wait_window(win)
+    return started[0]
+
+
+def check_updates_now(root):
+    """Help > Check for updates: answer right away, even if we asked recently."""
+    from tkinter import messagebox
+
+    if app_version() == "dev":
+        messagebox.showinfo("Updates", "This copy is running from the source code, so it doesn't check for updates.", parent=root)
+        return
+    dialog = ProgressDialog(root, "Checking for updates", "Checking...")
+    state = {"done": False, "result": ("unknown", None)}
+
+    def work():
+        state["result"] = _check_for_update(force=True)
+        state["done"] = True
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def poll():
+        if not state["done"]:
+            root.after(100, poll)
+            return
+        dialog.close()
+        status, info = state["result"]
+        if status == "update":
+            offer_update(root, info)
+        elif status == "current":
+            messagebox.showinfo("Updates", f"You're up to date (version {app_version()}).", parent=root)
+        else:
+            messagebox.showinfo("Updates", "Couldn't check right now. Check your internet connection and try again.", parent=root)
+
+    root.after(100, poll)
+
+
+def add_help_menu(root, extras=()):
+    """Give a window a Help menu. extras: [(label, callback), ...] go above the standard items."""
+    import tkinter as tk
+    from tkinter import messagebox
+
+    def about():
+        messagebox.showinfo(
+            "About",
+            f"Schoology Grade Checker {app_version()}\n\n"
+            "An independent project. It isn't made by, or connected to, Schoology or any school.\n\n"
+            f"{website_url()}",
+            parent=root,
+        )
+
+    menubar = tk.Menu(root)
+    help_menu = tk.Menu(menubar, tearoff=0)
+    help_menu.add_command(label="Website", command=lambda: webbrowser.open(website_url()))
+    help_menu.add_command(label="What's new", command=lambda: webbrowser.open(releases_url()))
+    help_menu.add_command(label="Check for updates...", command=lambda: check_updates_now(root))
+    help_menu.add_separator()
+    help_menu.add_command(label="Open the data folder", command=lambda: open_folder(DATA_DIR))
+    for label, command in extras:
+        help_menu.add_command(label=label, command=command)
+    help_menu.add_separator()
+    help_menu.add_command(label=f"About (version {app_version()})", command=about)
+    menubar.add_cascade(label="Help", menu=help_menu)
+    root.config(menu=menubar)
+
+
+def _save_page(driver, path):
+    html_text = driver.execute_script("return '<!DOCTYPE html>\\n' + document.documentElement.outerHTML")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html_text)
+    try:
+        driver.save_screenshot(os.path.splitext(path)[0] + ".png")
+    except Exception:
+        pass
+
+
+def save_course_pages(config, status):
+    """Sign in and save a copy of the dashboard and of each class page into data/pages.
+
+    For troubleshooting: the copies show exactly what the program sees. They contain the
+    student's name and grades, so they should only be shared on purpose. Returns the folder.
+    """
+    urls = list(dict.fromkeys(config["class_urls"]))
+    host = urllib.parse.urlparse(urls[0]).netloc
+    headless = config.get("headless", True)
+    out = os.path.join(DATA_DIR, "pages")
+    os.makedirs(out, exist_ok=True)
+    status("Starting Chrome...")
+    driver = make_driver(headless, config.get("profile_dir"))
+    try:
+        fetch_courses(driver, host, config["email"], config["password"], headless, status)  # signs in
+        _save_page(driver, os.path.join(out, "dashboard.html"))
+        for i, url in enumerate(urls, start=1):
+            status(f"Saving class {i} of {len(urls)}...")
+            driver.get(url)
+            wait_until(lambda: driver.execute_script("return document.readyState") == "complete", 15)
+            time.sleep(2)  # let the page finish drawing
+            _save_page(driver, os.path.join(out, f"class_{i}_{course_id_from_url(url) or 'x'}.html"))
+    finally:
+        close_browser()
+    return out
 
 
 # --------------------------------------------------------------------------

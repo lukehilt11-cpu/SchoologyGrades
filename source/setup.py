@@ -46,6 +46,7 @@ class SetupApp:
         root.protocol("WM_DELETE_WINDOW", self.on_close)
         root.report_callback_exception = self.on_ui_error
 
+        sg.add_help_menu(root, extras=[("Save class pages for troubleshooting...", self.save_pages)])
         try:
             root.createcommand("tk::mac::Quit", self.on_close)  # macOS: Cmd-Q and Dock > Quit
         except Exception:
@@ -105,6 +106,51 @@ class SetupApp:
     def on_ui_error(self, exc, val, tb):
         sg.log_error("".join(traceback.format_exception(exc, val, tb)))
         messagebox.showerror("Setup", f"Something went wrong:\n\n{val}\n\n(Details saved in error_log.txt)")
+
+    # ---- Help > Save class pages for troubleshooting ----------------------
+    def save_pages(self):
+        config = sg.read_config()
+        if not (config.get("class_urls") and config.get("email") and config.get("password")):
+            messagebox.showinfo("Setup", "Choose and save your classes first, then try this again.", parent=self.root)
+            return
+        if self.busy:
+            return
+        if not messagebox.askokcancel(
+            "Save class pages",
+            "This signs in and saves a copy of each of your class pages in the data folder "
+            "(inside a folder called pages), so that a problem can be diagnosed.\n\n"
+            "The copies include your name and your grades, so only share them on purpose.\n\nContinue?",
+            parent=self.root,
+        ):
+            return
+        self.busy = True
+        dialog = sg.ProgressDialog(self.root, "Saving class pages", "Starting...")
+        state = {"text": "Starting...", "done": False, "folder": None, "error": None}
+
+        def work():
+            try:
+                state["folder"] = sg.save_course_pages(config, lambda t: state.__setitem__("text", t))
+            except Exception as e:
+                sg.log_error(traceback.format_exc())
+                state["error"] = sg.explain(e)
+            state["done"] = True
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def poll():
+            if not state["done"]:
+                dialog.set(text=state["text"])
+                self.root.after(150, poll)
+                return
+            dialog.close()
+            self.busy = False
+            if state["error"] is not None:
+                messagebox.showerror("Save class pages", f"{state['error'].title}\n\n{state['error'].message}", parent=self.root)
+                return
+            messagebox.showinfo("Save class pages", "Done. The folder with the saved pages is opening now.", parent=self.root)
+            sg.open_folder(state["folder"])
+
+        self.root.after(150, poll)
 
     # ---- screen 1: sign in ----------------------------------------------
     def show_form(self, error=""):

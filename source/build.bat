@@ -75,6 +75,9 @@ echo [2/6] Drawing icons...
 python make_icons.py >> "%LOG%" 2>&1
 if errorlevel 1 goto fail
 :icons_done
+set "MISSING="
+for %%F in (grades.ico grades_256.png grades_64.png setup.ico setup_256.png) do if not exist "icons\%%F" set "MISSING=%%F"
+if defined MISSING goto icons_missing
 
 rem ---- 3/6 build the programs
 echo [3/6] Building programs (a minute or two)...
@@ -136,6 +139,11 @@ if "%DEV%"=="1" (
   if exist "%TARGET%" start "" "%TARGET%"
 )
 goto finish
+
+:icons_missing
+echo The icon file icons\%MISSING% is missing, and drawing the icons didn't create it.
+echo Is make_icons.py in the same folder as build.bat?
+goto fail
 
 :nopython
 echo Python was not found. Install it from python.org and tick "Add python.exe to PATH".

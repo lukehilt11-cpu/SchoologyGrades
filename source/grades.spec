@@ -13,9 +13,33 @@ import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 IS_MAC = sys.platform == "darwin"
-ICON_DIR = os.path.join(SPECPATH, "icons")        # made by icons/make_icons.py
+ICON_DIR = os.path.join(SPECPATH, "icons")        # drawn by make_icons.py
 VERSION_FILE = os.path.join(SPECPATH, "VERSION")  # one version number for everything
 REPO_FILE = os.path.join(SPECPATH, "REPO")        # added by the GitHub build; switches on the update notice
+
+
+
+def ensure_icons():
+    """Make sure the icon files exist; draw them with make_icons.py if they don't."""
+    needed = ["grades_256.png", "grades_64.png", "setup_256.png"]
+    needed += ["grades.icns", "setup.icns"] if IS_MAC else ["grades.ico", "setup.ico"]
+    missing = [n for n in needed if not os.path.exists(os.path.join(ICON_DIR, n))]
+    if missing:
+        maker = os.path.join(SPECPATH, "make_icons.py")
+        if os.path.exists(maker):
+            import runpy
+
+            runpy.run_path(maker, run_name="__main__")  # draws every icon (needs Pillow and numpy)
+            missing = [n for n in needed if not os.path.exists(os.path.join(ICON_DIR, n))]
+    if missing:
+        raise SystemExit(
+            "These icon files are missing from " + ICON_DIR + ": " + ", ".join(missing) + ". "
+            "They are drawn by make_icons.py (which needs Pillow and numpy). "
+            "Is make_icons.py in the same folder as grades.spec?"
+        )
+
+
+ensure_icons()
 
 # Selenium ships selenium-manager as a data file; it finds and downloads the
 # matching chromedriver at runtime, so it must be bundled.
@@ -35,9 +59,8 @@ APPS = (
 def analyse(script, icon_name):
     # The icon files are bundled so the running program can show its icon in its
     # window (see set_window_icon in sgcommon.py); VERSION feeds the window title.
-    datas = selenium_datas + [
-        (os.path.join(ICON_DIR, icon_name + ".ico"), "icons"),
-        (os.path.join(ICON_DIR, icon_name + "_256.png"), "icons"),
+    window_icons = [icon_name + "_256.png"] + ([] if IS_MAC else [icon_name + ".ico"])
+    datas = selenium_datas + [(os.path.join(ICON_DIR, n), "icons") for n in window_icons] + [
         (os.path.join(ICON_DIR, "grades_64.png"), "icons"),  # the report's tab icon
         (VERSION_FILE, "."),
     ] + ([(REPO_FILE, ".")] if os.path.exists(REPO_FILE) else [])
