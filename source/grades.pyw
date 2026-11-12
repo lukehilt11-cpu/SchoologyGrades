@@ -150,9 +150,29 @@ def round_half_up(x):
     return int(math.floor(x + 0.5))
 
 
+# Some teachers hide the cumulative "Course Grade", so the page only shows the
+# grading periods (Q1, Q2, ...). Then we work it out the way Schoology does:
+# the average of the graded periods, weighted by each period's share.
+CALC_JS = """
+var calcBadge = function (root) {
+  var rows = root.querySelectorAll('tr.period-row'), sum = 0, wsum = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var w = rows[i].querySelector('.percentage-contrib');
+    var g = rows[i].querySelector('td.grade-column .rounded-grade');
+    var weight = w ? parseFloat((w.textContent || '').replace(/[^0-9.]/g, '')) : NaN;
+    var pct = g ? parseFloat(g.getAttribute('title') || g.textContent || '') : NaN;
+    if (isNaN(weight) || weight <= 0 || isNaN(pct)) continue;
+    sum += pct * weight; wsum += weight;
+  }
+  if (!wsum) return null;
+  var v = (Math.round(sum / wsum * 100) / 100) + '%';
+  return [v, v];
+};
+"""
+
 # One call into the browser that answers everything we need to know about the
 # page, instead of half a dozen separate round trips per check.
-PROBE_JS = """
+PROBE_JS = CALC_JS + """
 var vis = function (e) { return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); };
 var first = function (sel) {
   var list = document.querySelectorAll(sel);
@@ -168,7 +188,7 @@ return {
   login: !!(first(arguments[3]) || first(arguments[4])),
   title: heading ? (heading.innerText || heading.textContent || '') : null,
   grade: badge(first(arguments[0])),
-  fallback: badge(first(arguments[1]))
+  fallback: badge(first(arguments[1])) || calcBadge(document)
 };
 """
 
@@ -271,7 +291,7 @@ def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25
                 if state.get("ready") == "complete" or now - first_title[idx] > 6:
                     settled.setdefault(idx, now)
                 if idx in settled and now - settled[idx] >= SETTLE_SECONDS:
-                    badge = state.get("fallback")  # last resort: first grade badge on the page
+                    badge = state.get("fallback")  # last resort: the course grade row, or worked out from the grading periods
                     finished = True
 
             if finished:
@@ -355,7 +375,7 @@ def reset_tabs(driver):
 FETCH_STATE_FILE = "fetch_mode.json"
 VERIFY_EVERY = 20
 
-FETCH_JS = """
+FETCH_JS = CALC_JS + """
 var done = arguments[arguments.length - 1];
 var urls = arguments[0], gradeSel = arguments[1], fallbackSel = arguments[2], titleSel = arguments[3];
 var badge = function (e) { return e ? [e.getAttribute('title') || '', e.textContent || ''] : null; };
@@ -369,7 +389,7 @@ Promise.all(urls.map(function (u) {
         login: !!doc.querySelector("input[type='password']"),
         title: h ? h.textContent : null,
         grade: badge(doc.querySelector(gradeSel)),
-        fallback: badge(doc.querySelector(fallbackSel))
+        fallback: badge(doc.querySelector(fallbackSel)) || calcBadge(doc)
       };
     });
   }).catch(function (e) { return {url: u, error: String(e)}; });

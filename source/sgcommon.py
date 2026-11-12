@@ -109,8 +109,11 @@ EMAIL_SEL = "input[name='loginfmt'], input[id='edit-name'], input[type='email']"
 PASS_SEL = "input[name='passwd'], input[id='edit-pass'], input[type='password']"
 STAY_SIGNED_IN_SEL = "input#idSIButton9, button#idSIButton9"
 TITLE_SEL = ".page-title, h1, .header-title"
-GRADE_SEL = ".course-grade-value .rounded-grade, .awarded-grade .rounded-grade"
-GRADE_FALLBACK_SEL = ".rounded-grade"
+# The class page lists one badge per grading period (Q1, Q2, ...) and the
+# cumulative "Course Grade" in a summary line at the bottom. We want the
+# cumulative one, never "the first badge on the page" (which is Q1).
+GRADE_SEL = ".summary-course .course-grade-value .rounded-grade"
+GRADE_FALLBACK_SEL = "tr.course-row .rounded-grade, .course-grade-value .rounded-grade"
 
 
 # --------------------------------------------------------------------------
