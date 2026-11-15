@@ -33,7 +33,32 @@ def row(kind, title, grade_html, weight=None, cid="9000001", rid="1"):
     )
 
 
-def page(title, periods, course_row=None, summary=None, hide_course_row=False, cid="9000001"):
+def item_row(title, due, score, mx, parent, n, missing=False):
+    """An assignment row. due: '9/02/26 11:19am'. score None = not graded."""
+    grade = ('<span class="awarded-grade"><span class="rounded-grade" title="%g">%g</span></span>'
+             '<span class="max-grade"> / %g</span>' % (score, score, mx)) if score is not None else NO_GRADE
+    return (
+        '<tr class="report-row item-row" data-id="I-%s" data-parent-id="%s"><th class="title-column" scope="row">'
+        '<div class="reportSpacer-3"><div class="td-content-wrapper"><span class="title" role="button">'
+        '<a href="/assignment/%s">%s<span class="visually-hidden">assignment</span></a></span> '
+        '<span class="due-date"><span class="visually-hidden">Due </span>%s</span></div></div></th>'
+        '<td class="grade-column"><div class="td-content-wrapper">%s%s</div></td>'
+        '<td class="comment-column"><div class="td-content-wrapper"></div></td></tr>'
+        % (n, parent, n, title, due, grade, '<span class="exception-icon missing" title="Missing"></span>' if missing else "")
+    )
+
+
+def category(name, weight, parent, n, pct=None):
+    return (
+        '<tr class="report-row category-row hidden" data-id="%s-%s" data-parent-id="%s"><th class="title-column" scope="row">'
+        '<div class="reportSpacer-2"><div class="td-content-wrapper"><span class="title" role="button">%s'
+        '<span class="visually-hidden">Category</span></span> <span class="percentage-contrib">(%s%%)</span></div></div></th>'
+        '<td class="grade-column"><div class="td-content-wrapper">%s</div></td><td class="comment-column"></td></tr>'
+        % (parent, n, parent, name, weight, badge(pct) if pct is not None else "")
+    )
+
+
+def page(title, periods, course_row=None, summary=None, hide_course_row=False, cid="9000001", items=None):
     """periods: [(name, weight, pct or None)]. course_row / summary: pct, or None to leave it out."""
     rows = []
     if course_row is not None:
@@ -42,6 +67,10 @@ def page(title, periods, course_row=None, summary=None, hide_course_row=False, c
         rows.append(row("course-row", "Course Grade", "", cid=cid, rid=cid))  # present but empty
     for i, (name, weight, pct) in enumerate(periods, start=1):
         rows.append(row("period-row", name, badge(pct) if pct is not None else NO_GRADE, weight, cid, str(100 + i)))
+        for cat_name, cat_weight, cat_pct, work in (items or {}).get(i, []):  # assignments under this period
+            rows.append(category(cat_name, cat_weight, str(100 + i), len(rows), cat_pct))
+            for k, (t, due, score, mx, *flag) in enumerate(work):
+                rows.append(item_row(t, due, score, mx, "%d-%d" % (100 + i, len(rows) - 1), "%d%d%d" % (i, len(rows), k), bool(flag)))
     summary_html = ""
     if summary is not None:
         summary_html = (
@@ -63,10 +92,14 @@ CASES = {
     # A "Course Grade" line under the grades, as most classes show it. The table's own Course Grade row is
     # hidden on screen, like on the real pages.
     "summary_two_quarters": (
-        page("Demo Algebra: DEMO A - 1", [("26-27 Q1", 50, 90.0), ("26-27 Q2", 50, 80.0)],
-             course_row=85.0, summary=85.0, hide_course_row=True, cid="9000001"),
-        ("summary", 85.0)),
-    # Only the first quarter is graded so far; the second says a dash.
+        page("Demo Algebra: DEMO A - 1", [("26-27 Q1", 50, 77.0), ("26-27 Q2", 50, 92.0)],
+             course_row=84.5, summary=84.5, hide_course_row=True, cid="9000001",
+             items={1: [("Classwork", 40, 110.0, [("Warm-up", "9/02/26 11:19am", 10, 10), ("Extra credit quiz", "9/09/26 8:00am", 1, 0)]),
+                        ("Tests", 60, 55.0, [("Unit 1 Test", "9/20/26 1:45pm", 55, 100)])],
+                    2: [("Classwork", 40, None, [("Worksheet A", "11/09/26 12:08pm", None, 10), ("Worksheet B", "11/30/36 12:00pm", None, 10),
+                                                 ("Lab write-up", "11/05/26 9:00am", None, 20, "missing")]),
+                        ("Tests", 60, 92.0, [("Unit 2 Test", "11/04/26 1:45pm", 92, 100)])]}),
+        ("summary", 84.5)),
     "summary_one_quarter": (
         page("Demo Health: DEMO H - 2", [("26-27 Q1", 50, 97.39), ("26-27 Q2", 50, None)],
              course_row=97.39, summary=97.39, cid="9000002"),

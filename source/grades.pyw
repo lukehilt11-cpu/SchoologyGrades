@@ -176,6 +176,87 @@ var hasNum = function (b) { return !!b && /[0-9]/.test((b[0] || '') + (b[1] || '
 var layoutOf = function (g, f, c) { return hasNum(g) ? 'summary' : hasNum(f) ? 'course_row' : c ? 'periods' : null; };
 """
 
+DATA_FN = r"""
+var dataOf = function (root) {
+  var txt = function (e) { return e ? (e.textContent || '').replace(/\s+/g, ' ').trim() : ''; };
+  var ttl = function (r, sel) {
+    var e = r.querySelector(sel || '.title'); if (!e) return '';
+    var c = e.cloneNode(true), hid = c.querySelectorAll('.visually-hidden');
+    for (var i = 0; i < hid.length; i++) hid[i].remove();
+    return txt(c);
+  };
+  var num = function (e) { var v = e ? parseFloat(e.getAttribute('title') || e.textContent || '') : NaN; return isNaN(v) ? null : v; };
+  var rows = root.querySelectorAll('tr.report-row'), periods = [], pname = {}, cats = {}, catlist = [], items = [];
+  for (var i = 0; i < rows.length && items.length < 400; i++) {
+    var r = rows[i], id = r.getAttribute('data-id'), par = r.getAttribute('data-parent-id'), cls = r.classList;
+    if (cls.contains('period-row')) {
+      var w = parseFloat(txt(r.querySelector('.percentage-contrib')).replace(/[^0-9.]/g, ''));
+      pname[id] = ttl(r);
+      periods.push({n: pname[id], w: isNaN(w) ? null : w, p: num(r.querySelector('td.grade-column .rounded-grade'))});
+    } else if (cls.contains('category-row')) {
+      var cw = parseFloat(txt(r.querySelector('.percentage-contrib')).replace(/[^0-9.]/g, ''));
+      cats[id] = {n: ttl(r), q: pname[par] || ''};
+      catlist.push({q: cats[id].q, n: cats[id].n, w: isNaN(cw) ? null : cw, p: num(r.querySelector('td.grade-column .rounded-grade'))});
+    } else if (cls.contains('item-row')) {
+      var cat = cats[par] || {n: '', q: ''}, due = ttl(r, '.due-date'), m = due.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/), d = '';
+      if (m) { var y = +m[3]; if (y < 100) y += 2000; d = y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2); }
+      var mx = parseFloat(txt(r.querySelector('.max-grade')).replace(/[^0-9.]/g, ''));
+      var gc = r.querySelector('td.grade-column');
+      var miss = cls.contains('missing') || (!!gc && (/missing/i.test(gc.textContent || '') || !!gc.querySelector('[class*="missing" i], [title*="missing" i], [aria-label*="missing" i]')));
+      items.push({n: ttl(r), d: d, s: num(r.querySelector('.awarded-grade .rounded-grade')), m: isNaN(mx) ? null : mx, c: cat.n, q: cat.q, x: miss ? 1 : 0});
+    }
+  }
+  return {periods: periods, items: items, cats: catlist};
+};
+"""
+
+DATA_JS = DATA_FN + "return dataOf(document);"
+
+
+def read_data(driver):
+    """Every grading period, and every assignment with its score, from the page in the current tab."""
+    try:
+        data = driver.execute_script(DATA_JS)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def short_period(name):
+    """'26-27 Q1' -> 'Q1'."""
+    return re.sub(r"^\s*\d{2,4}\s*[-/\u2013]\s*\d{2,4}\s+", "", str(name or "")).strip()
+
+
+def shape_data(data, use_custom):
+    """Tidy the page's periods and assignments for the report (and for saving)."""
+    out = {}
+    periods = []
+    for p in (data or {}).get("periods") or []:
+        entry = {"n": short_period(p.get("n")), "w": p.get("w")}
+        pct = p.get("p")
+        if isinstance(pct, (int, float)):
+            rounded = round_half_up(pct)
+            entry.update(p=round(pct, 2), o=get_official_grade(rounded), c=get_custom_grade(rounded) if use_custom else "")
+        periods.append(entry)
+    items = []
+    for i in (data or {}).get("items") or []:
+        if not i.get("n"):
+            continue
+        item = {"n": i["n"], "d": i.get("d") or "", "s": i.get("s"), "m": i.get("m"), "c": i.get("c") or "", "q": short_period(i.get("q"))}
+        if i.get("x"):
+            item["x"] = 1  # Schoology marked it missing
+        items.append(item)
+    cats = [{"q": short_period(k.get("q")), "n": k.get("n") or "", "w": k.get("w"), "p": k.get("p")}
+            for k in (data or {}).get("cats") or []]
+    if periods:
+        out["periods"] = periods
+    if items:
+        out["items"] = items
+    if cats:
+        out["cats"] = cats
+    return out
+
+
 PROBE_JS = CALC_JS + """
 var vis = function (e) { return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); };
 var first = function (sel) {
@@ -218,7 +299,7 @@ def badge_pct(badge):
     return None
 
 
-def course_result(driver, idx, title, badge, use_custom):
+def _course_result_base(driver, idx, title, badge, use_custom):
     name = (title or "").split(":")[0].strip() or f"Course {idx}"
     pct = badge_pct(badge)
     if pct is None:
@@ -304,6 +385,12 @@ class LayoutMemory:
 
 SHOW_BROWSER = [False]  # True for one run when the person chose "Sign in": Chrome is shown so they can sign in themselves
 
+def course_result(driver, idx, title, badge, use_custom, data=None):
+    result = _course_result_base(driver, idx, title, badge, use_custom)
+    result.update(shape_data(data, use_custom))  # periods and assignments, when the page had them
+    return result
+
+
 SESSION_MARKER = ".session_ok"  # exists after a run that finished while already signed in
 
 
@@ -371,7 +458,7 @@ def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25
             if finished:
                 if layouts is not None:
                     layouts.record(cid, state.get("layout") if badge is not None else None, diagnosed)
-                results[idx] = course_result(driver, idx, title, badge, use_custom)
+                results[idx] = course_result(driver, idx, title, badge, use_custom, read_data(driver))
                 del want[cid]
                 watching.remove(handle)
                 on_result(idx)
@@ -453,7 +540,7 @@ def reset_tabs(driver):
 FETCH_STATE_FILE = "fetch_mode.json"
 VERIFY_EVERY = 20
 
-FETCH_JS = CALC_JS + """
+FETCH_JS = CALC_JS + DATA_FN + """
 var done = arguments[arguments.length - 1];
 var urls = arguments[0], gradeSel = arguments[1], fallbackSel = arguments[2], titleSel = arguments[3];
 var badge = function (e) { return e ? [e.getAttribute('title') || '', e.textContent || ''] : null; };
@@ -469,7 +556,8 @@ Promise.all(urls.map(function (u) {
         title: h ? h.textContent : null,
         grade: g,
         fallback: f || c,
-        layout: layoutOf(g, f, c)
+        layout: layoutOf(g, f, c),
+        data: dataOf(doc)
       };
     });
   }).catch(function (e) { return {url: u, error: String(e)}; });
@@ -526,7 +614,7 @@ def results_from_pages(items, use_custom, layouts=None):
         badge = item.get("grade") if item.get("grade") is not None else item.get("fallback")
         if layouts is not None:
             layouts.record(course_id(urlparse(item.get("url") or "").path), item.get("layout") if badge is not None else None, True)
-        results.append(course_result(None, idx, item.get("title") or "", badge, use_custom))
+        results.append(course_result(None, idx, item.get("title") or "", badge, use_custom, item.get("data")))
     return results
 
 
@@ -671,6 +759,7 @@ DARK_VARS = """
   --shadow: 0 6px 28px rgba(0,0,0,.45); --btn: #262a34; --btn-hover: #323744;
   --upd-bg: #2a2f55; --upd-fg: #c3caff;
   --note-bg: #3a2f12; --note-fg: #f3d9a4;
+  --up: #4ade80; --down: #fb923c;
 """
 
 REPORT_TEMPLATE = r"""<!DOCTYPE html>
@@ -691,6 +780,7 @@ REPORT_TEMPLATE = r"""<!DOCTYPE html>
   --head: #f1f3f9; --head-text: #4b5563; --official: #4b5563; --custom: #2563eb;
   --shadow: 0 6px 28px rgba(15,23,42,.09); --btn: #eef0f6; --btn-hover: #e2e5ef;
   --upd-bg: #eef2ff; --upd-fg: #3730a3; --note-bg: #fff4d6; --note-fg: #6b4a05;
+  --up: #15803d; --down: #c2410c;
 }
 :root[data-theme="dark"] {__DARK__}
 @media (prefers-color-scheme: dark) {
@@ -728,6 +818,54 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
 .update { display: block; margin: 14px 0 0; padding: 10px 14px; border-radius: 12px; text-align: center;
   background: var(--upd-bg); color: var(--upd-fg); font-size: 13px; font-weight: 600; text-decoration: none; }
 .update:hover { filter: brightness(1.06); }
+.bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 16px; border-bottom: 1px solid var(--line); }
+.tabs { display: flex; gap: 2px; }
+.tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 8px 12px; font: inherit; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--custom); }
+.tab:focus-visible, .seg button:focus-visible { outline: 2px solid var(--custom); outline-offset: 2px; border-radius: 6px; }
+.seg { display: inline-flex; background: var(--btn); border-radius: 9px; padding: 2px; margin-bottom: 6px; }
+.seg button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted);
+  padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.14); }
+.panel[hidden], .bar[hidden], .seg[hidden] { display: none; }
+.panel table { margin-top: 6px; }
+.delta { margin-left: 6px; font-size: 11.5px; font-weight: 700; }
+.delta.up { color: var(--up); } .delta.down { color: var(--down); }
+.tools { display: flex; justify-content: flex-end; margin-top: 12px; }
+.tools .seg { margin: 0; }
+.acls { margin: 18px 0 2px; font-size: 14px; font-weight: 650; }
+.acls small { margin-left: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.arow { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.arow:last-child { border-bottom: 0; }
+.arow .when { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.arow .score { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.arow .score.low { color: var(--down); } .arow .score.none { color: var(--muted); font-weight: 500; }
+.empty { margin: 30px 0 14px; text-align: center; color: var(--muted); font-size: 13.5px; }
+.lede { margin: 18px 0 4px; font-size: 14.5px; line-height: 1.5; }
+.bars { display: block; width: 100%; height: auto; margin-top: 6px; }
+.bars .lbl { fill: var(--text); font-size: 13px; } .bars .val { fill: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bars .track { fill: var(--head); } .bars .fill { fill: var(--custom); }
+.stack { display: flex; height: 12px; margin-top: 10px; border-radius: 6px; overflow: hidden; background: var(--head); }
+.stack span { display: block; min-width: 0; }
+.s0 { background: var(--up); } .s1 { background: var(--custom); } .s2 { background: var(--muted); } .s3 { background: var(--down); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
+.legend b { color: var(--text); font-weight: 650; }
+.qt { margin-top: 6px; } .qt td, .qt th { padding: 9px 12px; font-size: 13.5px; }
+.hint { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.gpa input, .gpa select, .form input, .form select { font: inherit; font-size: 13.5px; padding: 6px 9px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text); max-width: 100%; }
+.gpa input { width: 70px; text-align: center; }
+.gpa input:focus-visible, .gpa select:focus-visible, .form input:focus-visible, .form select:focus-visible { outline: 2px solid var(--custom); outline-offset: 1px; }
+.result { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--head); font-size: 14px; line-height: 1.5; }
+.result b { font-weight: 700; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; margin-top: 12px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form .seg { grid-column: 1 / -1; justify-self: start; margin: 0; }
+.arow .score.missing { color: var(--down); }
 .foot { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; text-align: center; }
 </style>
 </head>
@@ -747,10 +885,28 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
   </div>
   __NOTICE__
   __UPDATE__
+  <div class="bar" id="bar" hidden>
+    <div class="tabs" role="tablist" aria-label="Report sections">
+      <button class="tab" role="tab" id="t-grades" aria-selected="true" aria-controls="grades" type="button">Grades</button>
+      <button class="tab" role="tab" id="t-assign" aria-selected="false" aria-controls="assign" type="button">Assignments</button>
+      <button class="tab" role="tab" id="t-stats" aria-selected="false" aria-controls="stats" type="button">Stats</button>
+      <button class="tab" role="tab" id="t-calc" aria-selected="false" aria-controls="calc" type="button">Calculator</button>
+    </div>
+    <div class="seg" id="scope" role="group" aria-label="Grading period"></div>
+  </div>
+  <section class="panel" id="grades" role="tabpanel" aria-labelledby="t-grades">
   <table>
     <thead><tr>__HEADERS__</tr></thead>
     <tbody>__ROWS__</tbody>
   </table>
+  </section>
+  <section class="panel" id="assign" role="tabpanel" aria-labelledby="t-assign" hidden>
+    <div class="tools"><div class="seg" id="view" role="group" aria-label="Which assignments"></div></div>
+    <div id="alist"></div>
+  </section>
+  <section class="panel" id="stats" role="tabpanel" aria-labelledby="t-stats" hidden><div id="statbox"></div></section>
+  <section class="panel" id="calc" role="tabpanel" aria-labelledby="t-calc" hidden><div id="calcbox"></div></section>
+  <script type="application/json" id="sgdata">__DATA__</script>
   <p class="foot">Schoology Grade Checker __VERSION__</p>
 </div>
 <script>
@@ -771,6 +927,252 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
     var next = order[(order.indexOf(load()) + 1) % order.length];
     save(next); apply(next);
   });
+})();
+</script>
+<script>
+/* tabs, grading-period picker, assignments, stats and calculator; the grades table works without any of this */
+(function () {
+  var node = document.getElementById("sgdata"), D;
+  try { D = JSON.parse(node.textContent); } catch (e) { return; }
+  var classes = D.classes || [], scopes = ["Semester"], seen = {}, scope = "Semester", view = "attention";
+  classes.forEach(function (c) { (c.periods || []).forEach(function (p) {
+    if (typeof p.p === "number" && !seen[p.n]) { seen[p.n] = 1; scopes.push(p.n); } }); });
+  var hasItems = classes.some(function (c) { return (c.items || []).length; });
+  var hasGrades = classes.some(function (c) { return typeof c.g === "number"; });
+  if (scopes.length < 2 && !hasItems && !hasGrades) return;
+  function $(id) { return document.getElementById(id); }
+  $("bar").hidden = false;
+  var rows = document.querySelectorAll("#grades tbody tr"), keep = [];
+  Array.prototype.forEach.call(rows, function (tr) { keep.push(Array.prototype.map.call(tr.children, function (td) { return td.innerHTML; })); });
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function svgEl(tag, attrs) { var e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
+  function fmt(n) { return String(Math.round(n * 100) / 100); }
+  function segment(box, names, labels, current, onPick) {
+    box.textContent = "";
+    names.forEach(function (n, i) {
+      var b = el("button", "", labels[i]); b.type = "button"; b.setAttribute("aria-pressed", n === current ? "true" : "false");
+      b.addEventListener("click", function () { onPick(n); }); box.appendChild(b);
+    });
+  }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function kind(it) {
+    if (it.x) return "missing";
+    if (typeof it.s !== "number") return it.d && it.d <= today() ? "none" : "";
+    return it.m > 0 && it.s / it.m < 0.7 ? "low" : "";
+  }
+  function shortDate(s) { var p = s.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(undefined, { month: "short", day: "numeric" }); }
+  function periodOf(c, s) { var r = null; (c.periods || []).forEach(function (x) { if (x.n === s) r = x; }); return r; }
+  function pctFor(c, s) { if (s === "Semester") return typeof c.g === "number" ? c.g : null; var p = periodOf(c, s); return p && typeof p.p === "number" ? p.p : null; }
+  function letterFor(c, s) { if (s === "Semester") return c.o || null; var p = periodOf(c, s); return p && p.o ? p.o : null; }
+  function inScope(it) { return scope === "Semester" || it.q === scope; }
+  function name(i) { return classes[i].n || "Class " + (i + 1); }
+
+  /* ---- grades table ---- */
+  function showScope() {
+    segment($("scope"), scopes, scopes, scope, function (n) { scope = n; showScope(); });
+    $("scope").hidden = scopes.length < 2;
+    Array.prototype.forEach.call(rows, function (tr, i) {
+      var cells = tr.children, p = periodOf(classes[i] || {}, scope);
+      for (var k = 1; k < cells.length; k++) {
+        if (scope === "Semester") cells[k].innerHTML = keep[i][k];
+        else cells[k].textContent = !p || typeof p.p !== "number" ? "\u2014" : k === 1 ? p.p + "%" : k === 2 ? p.o : p.c;
+      }
+    });
+    showAssign(); showStats(); showCalc();
+  }
+
+  /* ---- assignments ---- */
+  function showAssign() {
+    segment($("view"), ["attention", "all"], ["Needs attention", "All"], view, function (n) { view = n; showAssign(); });
+    var box = $("alist"), shown = 0; box.textContent = "";
+    classes.forEach(function (c, i) {
+      var list = (c.items || []).filter(inScope).filter(function (it) { return view === "all" || kind(it); });
+      if (!list.length) return;
+      list.sort(function (a, b) { return a.d < b.d ? 1 : a.d > b.d ? -1 : 0; });
+      var h = el("h3", "acls", name(i)); h.appendChild(el("small", "", list.length + (list.length === 1 ? " item" : " items"))); box.appendChild(h);
+      list.forEach(function (it) {
+        var row = el("div", "arow"), left = el("div"), k = kind(it), graded = typeof it.s === "number";
+        left.appendChild(el("span", "", it.n));
+        var when = [it.d ? shortDate(it.d) : "", it.c].filter(Boolean).join(", ");
+        if (when) left.appendChild(el("span", "when", when));
+        row.appendChild(left);
+        row.appendChild(el("span", "score" + (k ? " " + k : ""), it.x ? "Missing" : !graded ? "Not graded" : it.m > 0 ? it.s + " / " + it.m : it.s + " extra credit"));
+        box.appendChild(row); shown++;
+      });
+    });
+    if (!shown) box.appendChild(el("p", "empty", view === "all" ? "No assignments to show here." : "Nothing needs attention. Nice."));
+  }
+
+  /* ---- stats ---- */
+  function showStats() {
+    var box = $("statbox"); box.textContent = "";
+    var vals = [];
+    classes.forEach(function (c, i) { var v = pctFor(c, scope); if (v !== null) vals.push({ n: name(i), v: v }); });
+    if (!vals.length) { box.appendChild(el("p", "empty", "No grades to chart for this period yet.")); return; }
+    var sum = 0, hi = vals[0], lo = vals[0];
+    vals.forEach(function (x) { sum += x.v; if (x.v > hi.v) hi = x; if (x.v < lo.v) lo = x; });
+    box.appendChild(el("p", "lede", "Your average is " + fmt(sum / vals.length) + "% across " + vals.length + (vals.length === 1 ? " class." : " classes.") +
+      (vals.length > 1 ? " Highest is " + hi.n + " (" + fmt(hi.v) + "%); lowest is " + lo.n + " (" + fmt(lo.v) + "%)." : "")));
+    box.appendChild(el("h3", "acls", "Grade by class"));
+    var W = 600, rowH = 30, labelW = 176, barX = labelW + 10, barW = W - barX - 58, max = 100;
+    vals.forEach(function (x) { if (x.v > max) max = x.v; });
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + (vals.length * rowH + 8), role: "img", "aria-label": "Grade by class", "class": "bars" });
+    vals.forEach(function (x, i) {
+      var y = 4 + i * rowH, t = svgEl("text", { x: labelW, y: y + 17, "text-anchor": "end", "class": "lbl" });
+      t.textContent = x.n.length > 25 ? x.n.slice(0, 24) + "\u2026" : x.n; svg.appendChild(t);
+      svg.appendChild(svgEl("rect", { x: barX, y: y + 6, width: barW, height: 12, rx: 6, "class": "track" }));
+      svg.appendChild(svgEl("rect", { x: barX, y: y + 6, width: Math.max(4, barW * x.v / max), height: 12, rx: 6, "class": "fill" }));
+      var v = svgEl("text", { x: W - 4, y: y + 17, "text-anchor": "end", "class": "val" }); v.textContent = fmt(x.v) + "%"; svg.appendChild(v);
+    });
+    box.appendChild(svg);
+
+    var b = [0, 0, 0, 0], total = 0;
+    classes.forEach(function (c) { (c.items || []).forEach(function (it) {
+      if (inScope(it) && typeof it.s === "number" && it.m > 0) { var p = it.s / it.m * 100; b[p >= 90 ? 0 : p >= 80 ? 1 : p >= 70 ? 2 : 3]++; total++; } }); });
+    if (total) {
+      box.appendChild(el("h3", "acls", "Scores on assignments"));
+      var stack = el("div", "stack"), legend = el("ul", "legend"), names = ["90% and up", "80 to 89%", "70 to 79%", "Under 70%"];
+      b.forEach(function (n, i) {
+        if (n) { var s = el("span", "s" + i); s.style.width = (n / total * 100) + "%"; stack.appendChild(s); }
+        var li = el("li"), sw = el("i", "s" + i); li.appendChild(sw); li.appendChild(document.createTextNode(names[i] + " ")); li.appendChild(el("b", "", String(n))); legend.appendChild(li);
+      });
+      box.appendChild(stack); box.appendChild(legend);
+    }
+
+    var qs = scopes.slice(1), qrows = [];
+    if (qs.length > 1) {
+      classes.forEach(function (c, i) {
+        var vs = qs.map(function (q) { return pctFor(c, q); }), nums = vs.filter(function (v) { return v !== null; });
+        if (nums.length > 1) qrows.push({ n: name(i), vs: vs, d: nums[nums.length - 1] - nums[0] });
+      });
+    }
+    if (qrows.length) {
+      box.appendChild(el("h3", "acls", "Quarter to quarter"));
+      var t = el("table", "qt"), hr = el("tr"); ["Class"].concat(qs, ["Change"]).forEach(function (h) { hr.appendChild(el("th", "", h)); });
+      t.appendChild(el("thead")).appendChild(hr); var tb = el("tbody");
+      qrows.forEach(function (r) {
+        var tr = el("tr"); tr.appendChild(el("td", "", r.n));
+        r.vs.forEach(function (v) { tr.appendChild(el("td", "", v === null ? "\u2014" : fmt(v) + "%")); });
+        var td = el("td"); if (Math.abs(r.d) >= 0.01) td.appendChild(el("span", "delta " + (r.d > 0 ? "up" : "down"), (r.d > 0 ? "\u25b2" : "\u25bc") + fmt(Math.abs(r.d)))); else td.textContent = "\u2014";
+        tr.appendChild(td); tb.appendChild(tr);
+      });
+      t.appendChild(tb); box.appendChild(t);
+    }
+  }
+
+  /* ---- calculator ---- */
+  var GP = { "A+": 4, "A": 4, "A-": 3.7, "B+": 3.3, "B": 3, "B-": 2.7, "C+": 2.3, "C": 2, "C-": 1.7, "D+": 1.3, "D": 1, "D-": 0.7, "F": 0 };
+  var saved = {}; try { saved = JSON.parse(localStorage.getItem("sgCalc") || "{}") || {}; } catch (e) { saved = {}; }
+  function persist() { try { localStorage.setItem("sgCalc", JSON.stringify(saved)); } catch (e) {} }
+  var wi = { ci: null, q: null, cat: null, mode: "score", a: "", b: "10" };
+
+  /* The course grade if one more score is added. Everything else uses the grades Schoology reports, so only the change is estimated. */
+  function course(c, ex) {
+    var sum = 0, ws = 0;
+    (c.periods || []).forEach(function (p) {
+      if (!(p.w > 0)) return;
+      var s2 = 0, w2 = 0;
+      (c.cats || []).forEach(function (k) {
+        if (k.q !== p.n || !(k.w > 0)) return;
+        var v = typeof k.p === "number" ? k.p : null;
+        if (ex && ex.q === p.n && ex.c === k.n) {
+          var P = 0; (c.items || []).forEach(function (it) { if (it.q === p.n && it.c === k.n && typeof it.s === "number") P += it.m || 0; });
+          if (P + ex.m > 0) v = ((v === null ? 0 : v * P / 100) + ex.s) / (P + ex.m) * 100;
+        }
+        if (v !== null) { s2 += k.w * v; w2 += k.w; }
+      });
+      if (w2 > 0) { sum += p.w * s2 / w2; ws += p.w; }
+    });
+    return ws > 0 ? sum / ws : null;
+  }
+  function usable(c) { var v = course(c, null); return typeof c.g === "number" && (c.cats || []).length && v !== null && Math.abs(v - c.g) < 0.3; }
+
+  function showCalc() {
+    var box = $("calcbox"); box.textContent = "";
+    box.appendChild(el("h3", "acls", "GPA estimate"));
+    box.appendChild(el("p", "hint", "Uses the grades above for " + (scope === "Semester" ? "the semester" : scope) + " on a standard 4.0 scale. If you know a class's credits or whether it's Honors or AP, set them here; they're remembered on this computer."));
+    var gt = el("table", "gpa"), gb = el("tbody"), picks = [];
+    classes.forEach(function (c, i) {
+      var l = letterFor(c, scope); if (!l || GP[l] === undefined) return;
+      var s = saved[c.n] || {}, tr = el("tr"), cr = el("input"), bo = el("select");
+      cr.type = "number"; cr.min = "0"; cr.step = "0.5"; cr.value = s.cr != null ? s.cr : 1; cr.setAttribute("aria-label", "Credits for " + c.n);
+      [[0, "No boost"], [0.5, "Honors +0.5"], [1, "AP +1.0"]].forEach(function (o) { var op = el("option", "", o[1]); op.value = o[0]; bo.appendChild(op); });
+      bo.value = s.b != null ? s.b : 0; bo.setAttribute("aria-label", "Honors or AP boost for " + c.n);
+      tr.appendChild(el("td", "", c.n)); tr.appendChild(el("td", "", l));
+      var t3 = el("td"); t3.appendChild(cr); tr.appendChild(t3); var t4 = el("td"); t4.appendChild(bo); tr.appendChild(t4);
+      gb.appendChild(tr); picks.push({ c: c, l: l, cr: cr, bo: bo });
+    });
+    var out = el("p", "result");
+    if (picks.length) {
+      var head = el("tr"); ["Class", "Grade", "Credits", "Boost"].forEach(function (h) { head.appendChild(el("th", "", h)); });
+      gt.appendChild(el("thead")).appendChild(head); gt.appendChild(gb); box.appendChild(gt); box.appendChild(out);
+      var update = function () {
+        var pts = 0, cred = 0;
+        picks.forEach(function (x) {
+          var cr = parseFloat(x.cr.value), bo = parseFloat(x.bo.value); if (isNaN(cr) || cr < 0) cr = 0;
+          saved[x.c.n] = { cr: cr, b: bo };
+          pts += cr * (GP[x.l] + (GP[x.l] > 0 ? bo : 0)); cred += cr;
+        });
+        persist(); out.textContent = ""; out.appendChild(document.createTextNode("Estimated GPA: "));
+        out.appendChild(el("b", "", cred > 0 ? (Math.round(pts / cred * 100) / 100).toFixed(2) : "\u2014"));
+      };
+      picks.forEach(function (x) { x.cr.addEventListener("input", update); x.bo.addEventListener("change", update); }); update();
+    } else box.appendChild(el("p", "empty", "No letter grades to count for this period yet."));
+
+    box.appendChild(el("h3", "acls", "What if I score\u2026"));
+    var ok = []; classes.forEach(function (c, i) { if (usable(c)) ok.push(i); });
+    if (!ok.length) { box.appendChild(el("p", "hint", "Not available yet: it needs a graded class whose categories are listed on Schoology.")); return; }
+    if (ok.indexOf(wi.ci) < 0) { wi.ci = ok[0]; wi.q = null; wi.cat = null; }
+    var c = classes[wi.ci], pers = (c.periods || []).filter(function (p) { return (c.cats || []).some(function (k) { return k.q === p.n && k.w > 0; }) && p.w > 0; });
+    if (!pers.some(function (p) { return p.n === wi.q; })) { var lastGraded = pers.filter(function (p) { return typeof p.p === "number"; }); wi.q = (lastGraded.length ? lastGraded[lastGraded.length - 1] : pers[pers.length - 1] || {}).n; wi.cat = null; }
+    var cats = (c.cats || []).filter(function (k) { return k.q === wi.q && k.w > 0; });
+    if (!cats.some(function (k) { return k.n === wi.cat; })) wi.cat = cats.length ? cats[0].n : null;
+
+    var form = el("div", "form");
+    function field(label, ctl) { var l = el("label", "", label); l.appendChild(ctl); form.appendChild(l); return ctl; }
+    function select(items, labels, cur, onPick) { var s = el("select"); items.forEach(function (v, i) { var o = el("option", "", labels[i]); o.value = v; s.appendChild(o); }); s.value = cur; s.addEventListener("change", function () { onPick(s.value); }); return s; }
+    var modeBox = el("div", "seg"); form.appendChild(modeBox);
+    segment(modeBox, ["score", "need"], ["If I score", "What do I need"], wi.mode, function (n) { wi.mode = n; showCalc(); });
+    field("Class", select(ok, ok.map(name), wi.ci, function (v) { wi.ci = +v; wi.q = null; wi.cat = null; showCalc(); }));
+    field("Grading period", select(pers.map(function (p) { return p.n; }), pers.map(function (p) { return p.n; }), wi.q, function (v) { wi.q = v; wi.cat = null; showCalc(); }));
+    field("Category", select(cats.map(function (k) { return k.n; }), cats.map(function (k) { return k.n + " (" + k.w + "%)"; }), wi.cat, function (v) { wi.cat = v; showCalc(); }));
+    var a = el("input"); a.type = "number"; a.min = "0"; a.step = "any"; a.value = wi.mode === "score" ? wi.a : (wi.at || "");
+    var m = el("input"); m.type = "number"; m.min = "0"; m.step = "any"; m.value = wi.b;
+    field(wi.mode === "score" ? "My score" : "Grade I want in the class (%)", a); field("Out of (points)", m);
+    box.appendChild(form);
+    var res = el("p", "result"); box.appendChild(res);
+    var base = c.g;
+    function run() {
+      wi.b = m.value; if (wi.mode === "score") wi.a = a.value; else wi.at = a.value;
+      var pts = parseFloat(m.value), val = parseFloat(a.value); res.textContent = "";
+      if (isNaN(pts) || pts <= 0 || isNaN(val) || val < 0) { res.textContent = "Enter " + (wi.mode === "score" ? "a score" : "a target") + " and what it's out of."; return; }
+      function at(x) { return course(c, { q: wi.q, c: wi.cat, s: x, m: pts }); }
+      if (wi.mode === "score") {
+        var now = at(val);
+        res.appendChild(document.createTextNode("Your " + c.n + " grade would go from " + fmt(base) + "% to "));
+        res.appendChild(el("b", "", fmt(now) + "%")); res.appendChild(document.createTextNode(" (" + (now >= base ? "+" : "\u2212") + fmt(Math.abs(now - base)) + ")."));
+      } else {
+        if (at(0) >= val) { res.textContent = "You'd already be at " + fmt(val) + "% or higher, whatever you score on it."; return; }
+        if (at(pts * 3) < val) { res.textContent = "One " + pts + "-point assignment in this category can't get you to " + fmt(val) + "%."; return; }
+        var lo = 0, hi = pts * 3; for (var i = 0; i < 40; i++) { var mid = (lo + hi) / 2; if (at(mid) >= val) hi = mid; else lo = mid; }
+        res.appendChild(document.createTextNode("To reach " + fmt(val) + "% you'd need about "));
+        res.appendChild(el("b", "", (Math.ceil(hi * 100 - 1e-6) / 100) + " out of " + pts + " (" + fmt(hi / pts * 100) + "%)")); res.appendChild(document.createTextNode("."));
+      }
+    }
+    a.addEventListener("input", run); m.addEventListener("input", run); run();
+    box.appendChild(el("p", "hint", "An estimate from the grades Schoology shows. Your teacher's rules, like dropped scores, can shift it a little."));
+  }
+
+  /* ---- tabs ---- */
+  var ids = ["grades", "assign", "stats", "calc"];
+  function showTab(n) {
+    ids.forEach(function (id) { var on = id === n; $(id).hidden = !on; $("t-" + id).setAttribute("aria-selected", on ? "true" : "false"); });
+  }
+  ids.forEach(function (id) { $("t-" + id).addEventListener("click", function () { showTab(id); }); });
+  if (!hasItems) $("t-assign").style.display = "none";
+  if (!hasGrades) { $("t-stats").style.display = "none"; $("t-calc").style.display = "none"; }
+  showScope();
 })();
 </script>
 <script>
@@ -846,15 +1248,23 @@ def load_last_report():
     return None
 
 
-def write_report(results, use_custom, update=None, saved_time=None):
+def write_report(results, use_custom, update=None, saved_time=None, previous=None):
     """Write grade_report.html. saved_time: these are older, saved grades (Schoology couldn't be reached)."""
     headers = "<th>Course</th><th>Schoology %</th><th>Official Grade</th>"
     if use_custom:
         headers += "<th>Custom Grade</th>"
 
+    before = {(r.get("url") or r.get("name")): r.get("pct") for r in previous or []}
     rows = ""
     for d in results:
         pct = f"{d['pct']}%" if isinstance(d["pct"], (int, float)) else html.escape(str(d["pct"]))
+        old_pct = before.get(d.get("url") or d.get("name"))
+        if saved_time is None and isinstance(d["pct"], (int, float)) and isinstance(old_pct, (int, float)):
+            change = round(d["pct"] - old_pct, 2)
+            if abs(change) >= 0.01:  # what moved since the last check
+                up = change > 0
+                pct += (f"<span class='delta {'up' if up else 'down'}' title='Since your last check'>"
+                        f"{'&#9650;' if up else '&#9660;'}{abs(change):g}</span>")
         name = html.escape(d["name"])
         if d.get("url"):  # click a class to open it on Schoology
             name = f"<a href='{html.escape(d['url'], quote=True)}' target='_blank' rel='noopener' title='Open on Schoology'>{name}</a>"
@@ -881,6 +1291,13 @@ def write_report(results, use_custom, update=None, saved_time=None):
         when = f"{checked_at:%b %d at %I:%M %p}".replace(" 0", " ")
         notice = f"<p class='note'>Couldn't check Schoology just now. These are the grades saved on {when}.</p>"
 
+    shared = {"classes": [
+        {"n": r["name"], "o": r.get("official"), "g": r["pct"] if isinstance(r.get("pct"), (int, float)) else None,
+         "periods": r.get("periods") or [], "items": r.get("items") or [], "cats": r.get("cats") or []}
+        for r in results
+    ]}
+    data_json = json.dumps(shared, separators=(",", ":")).replace("<", "\\u003c")  # safe inside a <script> tag
+
     cheer = is_straight_a(results) and saved_time is None
     page = (
         REPORT_TEMPLATE
@@ -893,6 +1310,7 @@ def write_report(results, use_custom, update=None, saved_time=None):
         .replace("__UPDATE__", banner)
         .replace("__HEADERS__", headers)
         .replace("__ROWS__", rows)
+        .replace("__DATA__", data_json)
         .replace("__VERSION__", html.escape(app_version()))
     )
     path = os.path.abspath("grade_report.html")
@@ -904,7 +1322,7 @@ def write_report(results, use_custom, update=None, saved_time=None):
 def show_report(path, rows):
     """Open the report in a small bare Chrome window (no tabs, no address bar).
     Falls back to the normal browser if Chrome can't be found."""
-    height = max(400, min(900, 260 + 47 * rows))  # room for the update banner too
+    height = max(440, min(900, 310 + 47 * rows))  # room for the update banner too
     if open_app_window(Path(path).as_uri(), 640, height):
         return
     if hasattr(os, "startfile"):
@@ -929,6 +1347,7 @@ def worker(root, status_label, on_ok, on_error):
         update = {}
         checker = threading.Thread(target=lambda: update.update(info=check_for_update()), daemon=True)
         checker.start()
+        previous = load_last_report()  # last time's grades, to show what changed
         results, use_custom = scrape_all(config, status)
         status("Generating report card...")
         checker.join(timeout=1.5)
@@ -936,7 +1355,7 @@ def worker(root, status_label, on_ok, on_error):
             result["url"] = url  # lets the report link each class to Schoology
         save_last_report(results, use_custom)
         info = update.get("info")
-        path = write_report(results, use_custom, info)
+        path = write_report(results, use_custom, info, previous=previous[0] if previous else None)
         root.after(0, lambda: on_ok(path, len(results), info))
     except Exception as e:
         friendly = explain(e)

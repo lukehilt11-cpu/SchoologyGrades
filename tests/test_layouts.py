@@ -69,6 +69,16 @@ with sync_playwright() as p:
         check("%-24s live page   -> %s %s" % (name, live["layout"], got),
               live["layout"] == want_layout and (got == want_pct or (got is not None and want_pct is not None and abs(got - want_pct) < 0.006)),
               "wanted %s %s" % (want_layout, want_pct))
+    # Periods and assignments (used by the Grades and Assignments tabs)
+    page.goto(base + "summary_two_quarters.html")
+    data = page.evaluate("(js) => new Function(js)()", g.DATA_JS)
+    shaped = g.shape_data(data, False)
+    check("periods read: Q1 and Q2 with weights and letters", [(x["n"], x["w"], x["p"], x["o"]) for x in shaped["periods"]] == [("Q1", 50, 77.0, g.get_official_grade(77)), ("Q2", 50, 92.0, g.get_official_grade(92))], shaped["periods"])
+    items = shaped["items"]
+    check("7 assignments read, with period and category", len(items) == 7 and items[0] == {"n": "Warm-up", "d": "2026-09-02", "s": 10.0, "m": 10.0, "c": "Classwork", "q": "Q1"}, items[:1])
+    check("extra credit (out of 0) and not-graded items read", items[1]["m"] == 0 and items[3]["s"] is None and items[3]["q"] == "Q2", items[1:4])
+    check("Schoology's 'missing' mark is picked up, and only on that item", [i.get("x") for i in items] == [None, None, None, None, None, 1, None], [i.get("x") for i in items])
+    check("categories read with weight and reported grade", [(k["q"], k["n"], k["w"], k["p"]) for k in shaped["cats"]] == [("Q1", "Classwork", 40, 110.0), ("Q1", "Tests", 60, 55.0), ("Q2", "Classwork", 40, None), ("Q2", "Tests", 60, 92.0)], shaped["cats"])
     # The direct-HTML shortcut: fetch every page from one tab and read them without drawing.
     page.goto(base + "summary_two_quarters.html")
     urls = [base + n + ".html" for n in pages_mod.CASES]
