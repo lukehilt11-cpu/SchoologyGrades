@@ -150,9 +150,13 @@ def round_half_up(x):
     return int(math.floor(x + 0.5))
 
 
-# Some teachers hide the cumulative "Course Grade", so the page only shows the
-# grading periods (Q1, Q2, ...). Then we work it out the way Schoology does:
-# the average of the graded periods, weighted by each period's share.
+# Classes differ in how Schoology shows the cumulative grade. We recognise three
+# "layouts" and remember which one each class uses (see LayoutMemory below):
+#   summary    a "Course Grade" line under the grades
+#   course_row a "Course Grade" row in the table
+#   periods    the teacher hides the cumulative grade, so the page only shows the
+#              grading periods (Q1, Q2, ...); we work it out the way Schoology does:
+#              the average of the graded periods, weighted by each period's share.
 CALC_JS = """
 var calcBadge = function (root) {
   var rows = root.querySelectorAll('tr.period-row'), sum = 0, wsum = 0;
@@ -168,10 +172,10 @@ var calcBadge = function (root) {
   var v = (Math.round(sum / wsum * 100) / 100) + '%';
   return [v, v];
 };
+var hasNum = function (b) { return !!b && /[0-9]/.test((b[0] || '') + (b[1] || '')); };
+var layoutOf = function (g, f, c) { return hasNum(g) ? 'summary' : hasNum(f) ? 'course_row' : c ? 'periods' : null; };
 """
 
-# One call into the browser that answers everything we need to know about the
-# page, instead of half a dozen separate round trips per check.
 PROBE_JS = CALC_JS + """
 var vis = function (e) { return !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); };
 var first = function (sel) {
@@ -181,14 +185,16 @@ var first = function (sel) {
 };
 var badge = function (e) { return e ? [e.getAttribute('title') || '', e.innerText || e.textContent || ''] : null; };
 var heading = document.querySelector(arguments[2]);
+var g = badge(first(arguments[0])), f = badge(first(arguments[1])), c = f ? null : calcBadge(document);
 return {
   host: location.host,
   path: location.pathname,
   ready: document.readyState,
   login: !!(first(arguments[3]) || first(arguments[4])),
   title: heading ? (heading.innerText || heading.textContent || '') : null,
-  grade: badge(first(arguments[0])),
-  fallback: badge(first(arguments[1])) || calcBadge(document)
+  grade: g,
+  fallback: f || c,
+  layout: layoutOf(g, f, c)
 };
 """
 
@@ -233,6 +239,71 @@ def course_result(driver, idx, title, badge, use_custom):
     }
 
 
+LAYOUTS_FILE = "layouts.json"
+RECHECK_EVERY = 10  # a class whose grade has to be worked out is looked at the slow, careful way every 10th run
+
+
+class LayoutMemory:
+    """Remembers, per class, how its page shows the grade (see CALC_JS above).
+
+    Saved in data/layouts.json. A class we already know has no cumulative-grade line
+    doesn't have to be waited on, so its grade is taken as soon as the page is
+    drawn. If a class ever can't be read, it is forgotten and looked at carefully
+    next time (re-diagnosed); known classes are also re-checked every RECHECK_EVERY
+    runs, which catches a teacher turning the cumulative grade on or off.
+    """
+
+    def __init__(self, path=LAYOUTS_FILE):
+        self.path = path
+        self.data = {}
+        self.changed = False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            for cid, entry in (raw.get("classes") or {}).items():
+                if isinstance(entry, dict) and entry.get("layout") in ("summary", "course_row", "periods"):
+                    self.data[str(cid)] = {"layout": entry["layout"], "runs": int(entry.get("runs", 0))}
+        except Exception:
+            self.data = {}
+
+    def skip_wait(self, cid):
+        """True if this class is known to show no cumulative-grade line (and isn't due a re-check)."""
+        entry = self.data.get(cid)
+        return bool(entry) and entry["layout"] in ("course_row", "periods") and entry["runs"] < RECHECK_EVERY
+
+    def record(self, cid, layout, diagnosed):
+        """Note what a read just showed. diagnosed: True if we waited and looked carefully."""
+        if cid is None:
+            return
+        cid = str(cid)
+        if layout is None:  # couldn't read it: forget, so the next run looks carefully
+            if self.data.pop(cid, None) is not None:
+                self.changed = True
+            return
+        entry = self.data.get(cid)
+        if entry is None or entry["layout"] != layout:
+            self.data[cid] = {"layout": layout, "runs": 0}
+            self.changed = True
+        elif diagnosed:
+            if entry["runs"]:
+                entry["runs"] = 0
+                self.changed = True
+        else:
+            entry["runs"] += 1
+            self.changed = True
+
+    def save(self):
+        if not self.changed:
+            return
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump({"classes": self.data}, f, indent=1)
+        except OSError:
+            pass
+
+
+SHOW_BROWSER = [False]  # True for one run when the person chose "Sign in": Chrome is shown so they can sign in themselves
+
 SESSION_MARKER = ".session_ok"  # exists after a run that finished while already signed in
 
 
@@ -245,7 +316,7 @@ def course_id(path):
     return match.group(1) if match else None
 
 
-def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25, blank_wait=15):
+def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25, blank_wait=15, layouts=None):
     """Watch several tabs until every wanted course has its grade.
 
     handles: window handles to watch. want: {course id: course number} still
@@ -282,7 +353,7 @@ def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25
             if idx is None:
                 continue
 
-            badge, title, finished = state.get("grade"), state.get("title"), False
+            badge, title, finished, diagnosed = state.get("grade"), state.get("title"), False, True
             if badge is not None:
                 finished = True
             elif title is not None:
@@ -290,11 +361,16 @@ def read_courses(driver, handles, want, host, use_custom, on_result, max_wait=25
                 first_title.setdefault(idx, now)
                 if state.get("ready") == "complete" or now - first_title[idx] > 6:
                     settled.setdefault(idx, now)
-                if idx in settled and now - settled[idx] >= SETTLE_SECONDS:
+                if (state.get("ready") == "complete" and state.get("fallback") is not None
+                        and layouts is not None and layouts.skip_wait(cid)):
+                    badge, finished, diagnosed = state.get("fallback"), True, False  # known layout: no need to wait
+                elif idx in settled and now - settled[idx] >= SETTLE_SECONDS:
                     badge = state.get("fallback")  # last resort: the course grade row, or worked out from the grading periods
                     finished = True
 
             if finished:
+                if layouts is not None:
+                    layouts.record(cid, state.get("layout") if badge is not None else None, diagnosed)
                 results[idx] = course_result(driver, idx, title, badge, use_custom)
                 del want[cid]
                 watching.remove(handle)
@@ -328,13 +404,13 @@ def open_courses(driver, urls, navigate_main):
     return driver.window_handles
 
 
-def fetch_all(driver, urls, host, use_custom, note, navigate_main, timeline):
+def fetch_all(driver, urls, host, use_custom, note, navigate_main, timeline, layouts=None):
     """Load every course in parallel tabs and read each grade. Returns results in order."""
     want = {course_id(u): i for i, u in enumerate(urls, start=1)}
     handles = open_courses(driver, urls, navigate_main)
     timeline.mark("All course tabs opened")
 
-    results, stuck = read_courses(driver, handles, want, host, use_custom, note)
+    results, stuck = read_courses(driver, handles, want, host, use_custom, note, layouts=layouts)
 
     if stuck:  # tabs that never rendered (e.g. throttled): load each directly and look again
         timeline.mark(f"{len(stuck)} tab(s) never loaded, reloading them")
@@ -344,10 +420,12 @@ def fetch_all(driver, urls, host, use_custom, note, navigate_main, timeline):
             driver.get(urls[idx - 1])
             fresh.append(driver.current_window_handle)
         retry_want = {course_id(urls[i - 1]): i for i in stuck}
-        more, stuck = read_courses(driver, fresh, retry_want, host, use_custom, note, max_wait=20)
+        more, stuck = read_courses(driver, fresh, retry_want, host, use_custom, note, max_wait=20, layouts=layouts)
         results.update(more)
         for idx in stuck:  # still nothing: record N/A (with a screenshot)
             results[idx] = course_result(driver, idx, "", None, use_custom)
+            if layouts is not None:
+                layouts.record(course_id(urls[idx - 1]), None, True)  # forget it: look carefully next time
 
     return [results[i] for i in range(1, len(urls) + 1)]
 
@@ -384,12 +462,14 @@ Promise.all(urls.map(function (u) {
     return r.text().then(function (t) {
       var doc = new DOMParser().parseFromString(t, 'text/html');
       var h = doc.querySelector(titleSel);
+      var g = badge(doc.querySelector(gradeSel)), f = badge(doc.querySelector(fallbackSel)), c = f ? null : calcBadge(doc);
       return {
         url: r.url, ok: r.ok,
         login: !!doc.querySelector("input[type='password']"),
         title: h ? h.textContent : null,
-        grade: badge(doc.querySelector(gradeSel)),
-        fallback: badge(doc.querySelector(fallbackSel)) || calcBadge(doc)
+        grade: g,
+        fallback: f || c,
+        layout: layoutOf(g, f, c)
       };
     });
   }).catch(function (e) { return {url: u, error: String(e)}; });
@@ -440,10 +520,12 @@ def pages_usable(items, urls):
     return True
 
 
-def results_from_pages(items, use_custom):
+def results_from_pages(items, use_custom, layouts=None):
     results = []
     for idx, item in enumerate(items, start=1):
         badge = item.get("grade") if item.get("grade") is not None else item.get("fallback")
+        if layouts is not None:
+            layouts.record(course_id(urlparse(item.get("url") or "").path), item.get("layout") if badge is not None else None, True)
         results.append(course_result(None, idx, item.get("title") or "", badge, use_custom))
     return results
 
@@ -460,8 +542,9 @@ def scrape_all(config, status):
     if any(course_id(u) is None for u in urls):
         raise RuntimeError("config.json has a class link without a course number. Run SchoologySetup again.")
     host = urlparse(urls[0]).netloc
-    headless = config.get("headless", True)
+    headless = config.get("headless", True) and not SHOW_BROWSER[0]
     use_custom = wants_custom_scale(config["email"])
+    layouts = LayoutMemory()
 
     timeline = Timeline()
     done = [0]
@@ -493,13 +576,13 @@ def scrape_all(config, status):
             verify_due = mode == "unknown" or (mode == "ok" and count >= VERIFY_EVERY)
 
             if mode == "ok" and html_has_grades and not verify_due:
-                results = results_from_pages(pages, use_custom)  # no tabs needed at all
+                results = results_from_pages(pages, use_custom, layouts)  # no tabs needed at all
                 save_fetch_state("ok", count + 1)
                 for idx in range(1, len(urls) + 1):
                     note(idx)
             else:
                 try:
-                    results = fetch_all(driver, urls, host, use_custom, note, True, timeline)
+                    results = fetch_all(driver, urls, host, use_custom, note, True, timeline, layouts)
                 except LoginNeeded:
                     results = None
                     try:
@@ -543,6 +626,8 @@ def scrape_all(config, status):
                 return None
 
             if wait_until(ready, 15) != "ready":
+                if not headless:
+                    status("Sign in in the browser window if it asks you to...")
                 log_in(driver, config["email"], config["password"], host, 30 if headless else 180, status)
                 timeline.mark("Signed in")
 
@@ -551,7 +636,7 @@ def scrape_all(config, status):
             navigate_main = (here.netloc, here.path.rstrip("/")) != (want.netloc, want.path.rstrip("/"))
             timeline.mark("Schoology ready")
             status("Loading all courses...")
-            results = fetch_all(driver, urls, host, use_custom, note, navigate_main, timeline)
+            results = fetch_all(driver, urls, host, use_custom, note, navigate_main, timeline, layouts)
 
         try:
             with open(SESSION_MARKER, "w", encoding="utf-8") as f:
@@ -566,6 +651,7 @@ def scrape_all(config, status):
             pass
         raise
     finally:
+        layouts.save()
         timeline.mark("Finished")
         timeline.save()
         try:
@@ -898,6 +984,7 @@ def main():
             )
 
     def on_ok(path, rows, info=None):
+        SHOW_BROWSER[0] = False  # signed in: back to the quiet, hidden browser
         status_label.config(text="Opening your report...")
         try:
             show_report(path, rows)
@@ -937,6 +1024,10 @@ def main():
             friendly.actions = friendly.actions + ("show_saved",)
         choice = show_error_dialog(root, friendly, "grades")
         if choice == "try_again":
+            start_check()
+            return
+        if choice == "sign_in":  # one run with Chrome visible, so they can sign in themselves
+            SHOW_BROWSER[0] = True
             start_check()
             return
         if choice == "show_saved" and saved:

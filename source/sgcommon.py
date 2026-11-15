@@ -561,7 +561,7 @@ def open_app_window(url, width=620, height=720):
 class FriendlyError(Exception):
     """An error explained in plain words, with what the person can do about it.
 
-    actions: any of "try_again", "open_setup", "download_chrome".
+    actions: any of "try_again", "open_setup", "download_chrome", "sign_in".
     kind: a short label; "needs_setup" makes the program open Setup by itself.
     """
 
@@ -636,16 +636,18 @@ def explain(exc):
         )
     if has("login did not complete"):
         return make(
-            "The sign-in didn't work",
-            "Your email or password may be wrong, or your school wants you to approve the sign-in. "
-            "Open Setup to re-enter them (tick \"Show the browser\" if you need to approve it).",
-            ("open_setup", "try_again"), "bad_login",
+            "Please sign in again",
+            "Schoology didn't accept the saved sign-in. Choose Sign in and a browser window will open: "
+            "sign in there (and approve it on your phone if asked), and the check carries on by itself. "
+            "If your password has changed, open Setup instead.",
+            ("sign_in", "open_setup"), "sign_in",
         )
     if has("asked for a login again"):
         return make(
             "Schoology signed you out",
-            "Schoology asked you to sign in again in the middle of checking. Try again.",
-            ("try_again",), "signed_out",
+            "Schoology asked you to sign in again in the middle of checking. Try again. "
+            "If it keeps happening, choose Sign in to do it yourself in a browser window.",
+            ("try_again", "sign_in"), "signed_out",
         )
     if has("couldn't find your course list"):
         return make(
@@ -670,7 +672,7 @@ def explain(exc):
 
 
 def show_error_dialog(root, fe, icon_name="grades"):
-    """A small friendly dialog. Returns "try_again", "open_setup", "show_saved" or "close"."""
+    """A small friendly dialog. Returns "try_again", "open_setup", "show_saved", "sign_in" or "close"."""
     import tkinter as tk
     from tkinter import ttk
 
@@ -709,12 +711,12 @@ def show_error_dialog(root, fe, icon_name="grades"):
         if action == "download_chrome":
             webbrowser.open(CHROME_URL)
             action = "close"
-        choice[0] = action if action in ("try_again", "open_setup", "show_saved") else "close"
+        choice[0] = action if action in ("try_again", "open_setup", "show_saved", "sign_in") else "close"
         win.destroy()
 
     labels = {
         "try_again": "Try again", "open_setup": "Open Setup", "download_chrome": "Download Chrome",
-        "show_saved": "Show saved grades",
+        "show_saved": "Show saved grades", "sign_in": "Sign in",
     }
     row = ttk.Frame(frame)
     row.pack(fill="x")
