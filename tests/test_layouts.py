@@ -4,7 +4,7 @@ Needs:  pip install playwright && playwright install chromium
 Usage:  python tests/test_layouts.py        (SG_SOURCE=/path/to/source to test a different copy)
 Uses only the made-up pages in tests/pages/ (run tests/make_test_pages.py first if they're missing).
 """
-import http.server, importlib.machinery, importlib.util, json, os, shutil, sys, tempfile, threading, time
+import datetime, http.server, importlib.machinery, importlib.util, json, os, shutil, sys, tempfile, threading, time
 from functools import partial
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -75,9 +75,9 @@ with sync_playwright() as p:
     shaped = g.shape_data(data, False)
     check("periods read: Q1 and Q2 with weights and letters", [(x["n"], x["w"], x["p"], x["o"]) for x in shaped["periods"]] == [("Q1", 50, 77.0, g.get_official_grade(77)), ("Q2", 50, 92.0, g.get_official_grade(92))], shaped["periods"])
     items = shaped["items"]
-    check("7 assignments read, with period and category", len(items) == 7 and items[0] == {"n": "Warm-up", "d": "2026-09-02", "s": 10.0, "m": 10.0, "c": "Classwork", "q": "Q1"}, items[:1])
+    check("8 assignments read, with period and category", len(items) == 8 and items[0] == {"n": "Warm-up", "d": (datetime.date.today() - datetime.timedelta(days=70)).isoformat(), "s": 10.0, "m": 10.0, "c": "Classwork", "q": "Q1"}, items[:1])
     check("extra credit (out of 0) and not-graded items read", items[1]["m"] == 0 and items[3]["s"] is None and items[3]["q"] == "Q2", items[1:4])
-    check("Schoology's 'missing' mark is picked up, and only on that item", [i.get("x") for i in items] == [None, None, None, None, None, 1, None], [i.get("x") for i in items])
+    check("Schoology's 'missing' mark is picked up, and only on that item", [i.get("x") for i in items] == [None, None, None, None, None, 1, 1, None], [i.get("x") for i in items])
     check("categories read with weight and reported grade", [(k["q"], k["n"], k["w"], k["p"]) for k in shaped["cats"]] == [("Q1", "Classwork", 40, 110.0), ("Q1", "Tests", 60, 55.0), ("Q2", "Classwork", 40, None), ("Q2", "Tests", 60, 92.0)], shaped["cats"])
     # The direct-HTML shortcut: fetch every page from one tab and read them without drawing.
     page.goto(base + "summary_two_quarters.html")

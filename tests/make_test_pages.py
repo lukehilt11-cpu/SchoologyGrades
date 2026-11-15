@@ -3,10 +3,17 @@
 Each page copies the parts of a real class page that the grade reader looks at, in one of the
 layouts we have seen. Run:  python tests/make_test_pages.py
 """
+import datetime
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "pages")
+
+def when(days_ago):
+    """A due date like Schoology writes it ('9/02/26 9:00am'), this many days before today."""
+    d = datetime.date.today() - datetime.timedelta(days=days_ago)
+    return "%d/%02d/%02d 9:00am" % (d.month, d.day, d.year % 100)
+
 
 NO_GRADE = '<span class="no-grade">\u2014</span>'
 
@@ -94,11 +101,11 @@ CASES = {
     "summary_two_quarters": (
         page("Demo Algebra: DEMO A - 1", [("26-27 Q1", 50, 77.0), ("26-27 Q2", 50, 92.0)],
              course_row=84.5, summary=84.5, hide_course_row=True, cid="9000001",
-             items={1: [("Classwork", 40, 110.0, [("Warm-up", "9/02/26 11:19am", 10, 10), ("Extra credit quiz", "9/09/26 8:00am", 1, 0)]),
-                        ("Tests", 60, 55.0, [("Unit 1 Test", "9/20/26 1:45pm", 55, 100)])],
-                    2: [("Classwork", 40, None, [("Worksheet A", "11/09/26 12:08pm", None, 10), ("Worksheet B", "11/30/36 12:00pm", None, 10),
-                                                 ("Lab write-up", "11/05/26 9:00am", None, 20, "missing")]),
-                        ("Tests", 60, 92.0, [("Unit 2 Test", "11/04/26 1:45pm", 92, 100)])]}),
+             items={1: [("Classwork", 40, 110.0, [("Warm-up", when(70), 10, 10), ("Extra credit quiz", when(65), 1, 0)]),
+                        ("Tests", 60, 55.0, [("Unit 1 Test", when(25), 55, 100)])],
+                    2: [("Classwork", 40, None, [("Worksheet A", when(6), None, 10), ("Worksheet B", when(-3650), None, 10),
+                                                 ("Lab write-up", when(5), None, 20, "missing"), ("Old lab", when(40), None, 20, "missing")]),
+                        ("Tests", 60, 92.0, [("Unit 2 Test", when(8), 92, 100)])]}),
         ("summary", 84.5)),
     "summary_one_quarter": (
         page("Demo Health: DEMO H - 2", [("26-27 Q1", 50, 97.39), ("26-27 Q2", 50, None)],

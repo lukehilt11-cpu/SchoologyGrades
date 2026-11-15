@@ -866,6 +866,10 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .form .seg { grid-column: 1 / -1; justify-self: start; margin: 0; }
 .arow .score.missing { color: var(--down); }
+.aright { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.linkbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+.linkbtn:hover { color: var(--text); text-decoration: underline; }
+.linkbtn:focus-visible { outline: 2px solid var(--custom); outline-offset: 2px; }
 .foot { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; text-align: center; }
 </style>
 </head>
@@ -983,25 +987,53 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
   }
 
   /* ---- assignments ---- */
+  var dismissed = {}, showHidden = false;
+  try { dismissed = JSON.parse(localStorage.getItem("sgDismissed") || "{}") || {}; } catch (e) { dismissed = {}; }
+  function saveDismissed() { try { localStorage.setItem("sgDismissed", JSON.stringify(dismissed)); } catch (e) {} }
+  function iso(d) { return d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2); }
+  function keyOf(i, it) { return classes[i].n + "|" + it.n + "|" + it.d; }
+  function addRow(parent, it, action) {
+    var row = el("div", "arow"), left = el("div"), right = el("div", "aright"), k = kind(it), graded = typeof it.s === "number";
+    left.appendChild(el("span", "", it.n));
+    var when = [it.d ? shortDate(it.d) : "", it.c].filter(Boolean).join(", ");
+    if (when) left.appendChild(el("span", "when", when));
+    row.appendChild(left);
+    right.appendChild(el("span", "score" + (k ? " " + k : ""), it.x ? "Missing" : !graded ? "Not graded" : it.m > 0 ? it.s + " / " + it.m : it.s + " extra credit"));
+    if (action) {
+      var b = el("button", "linkbtn", action.label); b.type = "button"; b.setAttribute("aria-label", action.label + " " + it.n);
+      b.addEventListener("click", action.run); right.appendChild(b);
+    }
+    row.appendChild(right); parent.appendChild(row);
+  }
   function showAssign() {
     segment($("view"), ["attention", "all"], ["Needs attention", "All"], view, function (n) { view = n; showAssign(); });
-    var box = $("alist"), shown = 0; box.textContent = "";
+    var box = $("alist"), shown = 0, old = 0, hidden = [], attention = view === "attention", d = new Date(); box.textContent = "";
+    d.setDate(d.getDate() - 30); var cutoff = iso(d);
     classes.forEach(function (c, i) {
-      var list = (c.items || []).filter(inScope).filter(function (it) { return view === "all" || kind(it); });
+      var list = (c.items || []).filter(inScope).filter(function (it) {
+        if (!attention) return true;
+        if (!kind(it)) return false;
+        if (it.d && it.d < cutoff) { old++; return false; }
+        if (dismissed[keyOf(i, it)]) { hidden.push({ i: i, it: it }); return false; }
+        return true;
+      });
       if (!list.length) return;
       list.sort(function (a, b) { return a.d < b.d ? 1 : a.d > b.d ? -1 : 0; });
       var h = el("h3", "acls", name(i)); h.appendChild(el("small", "", list.length + (list.length === 1 ? " item" : " items"))); box.appendChild(h);
       list.forEach(function (it) {
-        var row = el("div", "arow"), left = el("div"), k = kind(it), graded = typeof it.s === "number";
-        left.appendChild(el("span", "", it.n));
-        var when = [it.d ? shortDate(it.d) : "", it.c].filter(Boolean).join(", ");
-        if (when) left.appendChild(el("span", "when", when));
-        row.appendChild(left);
-        row.appendChild(el("span", "score" + (k ? " " + k : ""), it.x ? "Missing" : !graded ? "Not graded" : it.m > 0 ? it.s + " / " + it.m : it.s + " extra credit"));
-        box.appendChild(row); shown++;
+        addRow(box, it, attention ? { label: "Dismiss", run: function () { dismissed[keyOf(i, it)] = 1; saveDismissed(); showAssign(); } } : null);
+        shown++;
       });
     });
-    if (!shown) box.appendChild(el("p", "empty", view === "all" ? "No assignments to show here." : "Nothing needs attention. Nice."));
+    if (!shown) box.appendChild(el("p", "empty", attention ? "Nothing needs attention. Nice." : "No assignments to show here."));
+    if (attention && old) box.appendChild(el("p", "hint", "Items from more than a month ago aren't listed here. Choose All to see them."));
+    if (attention && hidden.length) {
+      var t = el("button", "linkbtn", showHidden ? "Hide dismissed" : "Show dismissed (" + hidden.length + ")"); t.type = "button";
+      t.addEventListener("click", function () { showHidden = !showHidden; showAssign(); }); box.appendChild(t);
+      if (showHidden) hidden.forEach(function (x) {
+        addRow(box, x.it, { label: "Restore", run: function () { delete dismissed[keyOf(x.i, x.it)]; saveDismissed(); showAssign(); } });
+      });
+    }
   }
 
   /* ---- stats ---- */

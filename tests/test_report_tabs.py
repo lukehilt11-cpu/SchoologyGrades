@@ -10,6 +10,7 @@ SRC_ORIG = os.environ.get("SG_SOURCE") or os.path.join(HERE, "..", "source")
 sys.path.insert(0, HERE)
 import make_test_pages as pages_mod  # noqa: E402
 
+pages_mod.main()  # fresh pages: their dates are relative to today
 tmp = tempfile.mkdtemp()
 work = os.path.join(tmp, "SchoologyGrades", "source")
 shutil.copytree(SRC_ORIG, work)
@@ -79,8 +80,18 @@ with sync_playwright() as p:
         pg.click("#scope button:has-text('Q1')")
         check("[%s] Q1 narrows the list" % theme, pg.locator(".arow").count() == 1, pg.locator(".arow").all_inner_texts())
         pg.click("#scope button:has-text('Semester')")
+        check("[%s] items older than a month are left out, with a note saying so" % theme,
+              not any("Old lab" in n or "Warm-up" in n for n in pg.locator(".arow").all_inner_texts()) and "more than a month ago" in pg.locator("#alist").inner_text())
+        pg.click(".arow:has-text('Worksheet A') .linkbtn")
+        check("[%s] Dismiss removes an item from Needs attention" % theme, pg.locator(".arow").count() == 2 and "Show dismissed (1)" in pg.locator("#alist").inner_text(), pg.locator(".arow").all_inner_texts())
+        pg.reload(); pg.click("#t-assign")
+        check("[%s] ...and it stays dismissed after the report is opened again" % theme, pg.locator(".arow").count() == 2)
+        pg.click("#alist .linkbtn:has-text('Show dismissed')")
+        check("[%s] Show dismissed lists it with a Restore button" % theme, pg.locator(".arow").count() == 3 and pg.locator(".arow:has-text('Worksheet A') .linkbtn").inner_text() == "Restore")
+        pg.click(".arow:has-text('Worksheet A') .linkbtn")
+        check("[%s] Restore brings it back" % theme, pg.locator(".arow").count() == 3 and "Show dismissed" not in pg.locator("#alist").inner_text())
         pg.click("#view button:has-text('All')")
-        check("[%s] 'All' shows every assignment" % theme, pg.locator(".arow").count() == 7, pg.locator(".arow").count())
+        check("[%s] 'All' shows every assignment" % theme, pg.locator(".arow").count() == 8, pg.locator(".arow").count())
         pg.click("#t-stats")
         check("[%s] Stats tab: sentence, one bar per class, score spread" % theme,
               "Your average is" in pg.locator(".lede").inner_text() and pg.locator("svg.bars rect.fill").count() == 2 and pg.locator(".stack span").count() >= 1)

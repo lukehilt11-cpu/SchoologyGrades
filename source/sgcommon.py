@@ -987,12 +987,160 @@ def add_help_menu(root, extras=()):
     help_menu.add_command(label="Check for updates...", command=lambda: check_updates_now(root))
     help_menu.add_separator()
     help_menu.add_command(label="Open the data folder", command=lambda: open_folder(DATA_DIR))
+    help_menu.add_command(label="Report a problem...", command=lambda: report_problem(root))
     for label, command in extras:
         help_menu.add_command(label=label, command=command)
     help_menu.add_separator()
     help_menu.add_command(label=f"About (version {app_version()})", command=about)
     menubar.add_cascade(label="Help", menu=help_menu)
     root.config(menu=menubar)
+
+
+# --------------------------------------------------------------------------
+# Help > Report a problem: one file a student can send to whoever helps them
+# --------------------------------------------------------------------------
+_KEEP_WORDS = {"missing", "late", "incomplete", "excused", "exception", "due", "assignment", "category", "grading", "period", "course", "grade"}
+
+
+def scrub_text(text, keep_numbers=False):
+    """Blank out names, titles and scores, but keep the few words that describe how a page is built."""
+    def blank(match):
+        word = match.group(0)
+        return word if word.lower() in _KEEP_WORDS else "x" * len(word)
+    text = re.sub(r"[^\W\d_]+", blank, text)
+    return text if keep_numbers else re.sub(r"\d", "0", text)
+
+
+def scrub_html(page, keep_numbers=False):
+    """A copy of a saved page that still shows how it is built (tags, classes, ids) but holds no names or scores."""
+    page = re.sub(r"(?is)<(script|style|noscript|svg)\b.*?</\1>", "", page)
+    page = re.sub(r"(?is)<head\b.*?</head>", "<head></head>", page)
+    page = re.sub(r"(?s)<!--.*?-->", "", page)
+    keep = {"class", "id", "role", "type", "for", "colspan", "rowspan", "scope", "data-id", "data-parent-id", "aria-hidden", "hidden"}
+    words = {"title", "aria-label", "alt", "value", "placeholder"}
+
+    def attribute(m):
+        name, value = m.group(1), m.group(3)
+        if name.lower() in keep:
+            return m.group(0)
+        if name.lower() in words:
+            return '%s="%s"' % (name, scrub_text(value, keep_numbers).replace('"', "'"))
+        return '%s=""' % name
+
+    page = re.sub(r"<[^<>]+>", lambda t: re.sub(r"([A-Za-z_:][-\w:.]*)=([\"'])(.*?)\2", attribute, t.group(0), flags=re.S), page)
+    return re.sub(r">([^<>]+)<", lambda m: ">" + scrub_text(m.group(1), keep_numbers) + "<", page)
+
+
+def _mask_private(text):
+    text = re.sub(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", "<email>", text)
+    return re.sub(r"(?i)(users|home)([\\/])[^\\/\s]+", r"\1\2USER", text)
+
+
+def make_problem_report(include_grades=False):
+    """Write SchoologyGrades-problem-<date>.zip to the Desktop (or the data folder). Returns (path, notes)."""
+    import zipfile
+    folder = os.path.join(os.path.expanduser("~"), "Desktop")
+    if not (os.path.isdir(folder) and os.access(folder, os.W_OK)):
+        folder = DATA_DIR
+    path = os.path.join(folder, f"SchoologyGrades-problem-{datetime.now():%Y%m%d-%H%M}.zip")
+
+    def read(name):
+        try:
+            with open(os.path.join(DATA_DIR, name), "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return None
+
+    about = [f"Version: {app_version()}", f"System: {sys.platform}", f"Python: {sys.version.split()[0]}",
+             f"Report made: {datetime.now():%Y-%m-%d %H:%M}", f"Grades included: {'yes' if include_grades else 'no'}"]
+    try:
+        for key, value in json.loads(read("config.json") or "{}").items():  # only the shape: never the email or password
+            if key not in ("email", "password"):
+                about.append(f"Setting {key}: " + (f"{len(value)} items" if isinstance(value, (list, dict)) else str(value) if isinstance(value, (bool, int)) else "set"))
+    except ValueError:
+        about.append("config.json could not be read")
+
+    shape, layouts = [], {}
+    try:
+        layouts = (json.loads(read("layouts.json") or "{}") or {}).get("classes") or {}
+        saved = json.loads(read("last_report.json") or "{}")
+        for r in (saved.get("results") if isinstance(saved, dict) else saved) or []:
+            cid = course_id_from_url(r.get("url"))
+            shape.append({"layout": (layouts.get(str(cid)) or {}).get("layout"), "has_grade": isinstance(r.get("pct"), (int, float)),
+                          "periods": len(r.get("periods") or []), "assignments": len(r.get("items") or []), "categories": len(r.get("cats") or [])})
+    except Exception:
+        shape = shape or []
+
+    notes, pages = [], []
+    pages_dir = os.path.join(DATA_DIR, "pages")
+    if os.path.isdir(pages_dir):
+        pages = sorted(n for n in os.listdir(pages_dir) if n.lower().endswith(".html"))[:12]
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("about.txt", "\n".join(about) + "\n")
+        z.writestr("what-the-program-read.json", json.dumps(shape, indent=1))
+        for name in ("layouts.json", "fetch_mode.json"):
+            if read(name) is not None:
+                z.writestr(name, read(name))
+        for name in ("timing.txt", "error_log.txt"):
+            text = read(name)
+            if text is not None:
+                z.writestr(name, _mask_private("\n".join(text.splitlines()[-150:])))
+        for name in pages:
+            try:
+                with open(os.path.join(pages_dir, name), "r", encoding="utf-8", errors="replace") as f:
+                    z.writestr("pages/" + name, scrub_html(f.read(), keep_numbers=include_grades))
+            except OSError:
+                pass
+    if not pages:
+        notes.append("No class pages were saved yet. For more detail, open Setup, then Help > Save class pages for troubleshooting, and make this file again.")
+    return path, notes
+
+
+def report_problem(root):
+    """The Help > Report a problem dialog."""
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+
+    win = tk.Toplevel(root)
+    win.title("Report a problem")
+    win.resizable(False, False)
+    try:
+        win.transient(root)
+    except Exception:
+        pass
+    set_window_icon(win, "grades")
+    frame = ttk.Frame(win, padding=18)
+    frame.pack()
+    ttk.Label(frame, text="Make a file to send when something isn't working", font=("", 11, "bold")).pack(anchor="w")
+    ttk.Label(
+        frame, wraplength=380, justify="left",
+        text="It holds technical details: the program's version, which kind of page each class uses, and a copy of your class pages "
+             "with names and scores blanked out. It never holds your password or email.",
+    ).pack(anchor="w", pady=(8, 8))
+    grades = tk.BooleanVar(value=False)
+    ttk.Checkbutton(frame, variable=grades, text="Include my grades (only if a grade looks wrong)").pack(anchor="w")
+    buttons = ttk.Frame(frame)
+    buttons.pack(anchor="e", pady=(14, 0))
+
+    def make():
+        try:
+            path, notes = make_problem_report(grades.get())
+        except Exception as e:  # never let the helper itself crash
+            log_error(f"report_problem: {e!r}")
+            messagebox.showinfo("Report a problem", "Sorry, the file couldn't be made.", parent=win)
+            return
+        win.destroy()
+        messagebox.showinfo(
+            "Report a problem",
+            f"Done. The file is {os.path.basename(path)}, in the folder that's opening now. Send it to whoever is helping you."
+            + ("\n\n" + "\n".join(notes) if notes else ""),
+            parent=root,
+        )
+        open_folder(os.path.dirname(path))
+
+    ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right", padx=(8, 0))
+    ttk.Button(buttons, text="Make the file", command=make).pack(side="right")
+    _center_over(win, root)
 
 
 def _save_page(driver, path):
