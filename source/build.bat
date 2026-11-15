@@ -38,6 +38,7 @@ if "%DEV%"=="1" goto build
 if not exist "%TARGET%" goto build
 if not exist "%PARENT%\SchoologyGrades.exe" goto build
 if not exist "%PARENT%\SchoologySetup.exe" goto build
+if not exist "%PARENT%\SchoologyAutopilot.exe" goto build
 powershell -NoProfile -Command "$t=(Get-Item -LiteralPath $env:TARGET).LastWriteTime; $n=Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '__pycache__' -and $_.LastWriteTime -gt $t } | Select-Object -First 1; if ($n) { exit 1 } else { exit 0 }"
 if errorlevel 1 goto build
 echo Nothing has changed since the last build:
@@ -63,7 +64,7 @@ if errorlevel 1 goto fail
 
 rem ---- 2/6 icons (only redrawn when missing or older than make_icons.py)
 set "ICONS_OK=1"
-for %%F in (grades.ico grades.icns grades_256.png grades_64.png setup.ico setup.icns setup_256.png wizard_large.bmp wizard_small.bmp dmg_background.png) do if not exist "icons\%%F" set "ICONS_OK=0"
+for %%F in (grades.ico grades.icns grades_256.png grades_64.png setup.ico setup.icns setup_256.png auto.ico auto.icns auto_256.png wizard_large.bmp wizard_small.bmp dmg_background.png) do if not exist "icons\%%F" set "ICONS_OK=0"
 if "%FORCE%"=="1" set "ICONS_OK=0"
 if "%ICONS_OK%"=="0" goto draw_icons
 powershell -NoProfile -Command "$s=(Get-Item 'make_icons.py').LastWriteTime; $o=Get-ChildItem 'icons' -File | Where-Object { $_.LastWriteTime -lt $s } | Select-Object -First 1; if ($o) { exit 1 } else { exit 0 }"
@@ -76,7 +77,7 @@ python make_icons.py >> "%LOG%" 2>&1
 if errorlevel 1 goto fail
 :icons_done
 set "MISSING="
-for %%F in (grades.ico grades_256.png grades_64.png setup.ico setup_256.png) do if not exist "icons\%%F" set "MISSING=%%F"
+for %%F in (grades.ico grades_256.png grades_64.png setup.ico setup_256.png auto.ico auto_256.png) do if not exist "icons\%%F" set "MISSING=%%F"
 if defined MISSING goto icons_missing
 
 rem ---- 3/6 build the programs
@@ -89,12 +90,16 @@ if not exist "%WORK%\dist\SchoologyGrades\SchoologyGrades.exe" goto fail
 if not exist "%WORK%\dist\SchoologyGrades\SchoologySetup.exe" goto fail
 if not exist "%WORK%\dist\SchoologyGrades-portable.exe" goto fail
 if not exist "%WORK%\dist\SchoologySetup-portable.exe" goto fail
+if not exist "%WORK%\dist\SchoologyGrades\SchoologyAutopilot.exe" goto fail
+if not exist "%WORK%\dist\SchoologyAutopilot-portable.exe" goto fail
 
 rem ---- 4/6 the single-file programs, next to "source" (a data folder appears beside them when they run)
-echo [4/6] Updating SchoologyGrades.exe and SchoologySetup.exe...
+echo [4/6] Updating SchoologyGrades.exe, SchoologySetup.exe and SchoologyAutopilot.exe...
 copy /y "%WORK%\dist\SchoologyGrades-portable.exe" "%PARENT%\SchoologyGrades.exe" >> "%LOG%" 2>&1
 if errorlevel 1 goto locked
 copy /y "%WORK%\dist\SchoologySetup-portable.exe" "%PARENT%\SchoologySetup.exe" >> "%LOG%" 2>&1
+if errorlevel 1 goto locked
+copy /y "%WORK%\dist\SchoologyAutopilot-portable.exe" "%PARENT%\SchoologyAutopilot.exe" >> "%LOG%" 2>&1
 if errorlevel 1 goto locked
 
 rem ---- 5/6 the installer
@@ -126,7 +131,7 @@ if exist "%WORK%\dist" rmdir /s /q "%WORK%\dist"
 if exist "__pycache__" rmdir /s /q "__pycache__"
 echo.
 echo Done.
-echo   Programs:   %PARENT%\SchoologyGrades.exe and SchoologySetup.exe
+echo   Programs:   %PARENT%\SchoologyGrades.exe, SchoologySetup.exe and SchoologyAutopilot.exe
 if defined RESULT echo   Installer:  %RESULT%
 if defined NOTE echo   %NOTE%
 goto launch
@@ -151,7 +156,7 @@ goto finish_fail
 
 :locked
 echo.
-echo Couldn't replace SchoologyGrades.exe or SchoologySetup.exe in:
+echo Couldn't replace SchoologyGrades.exe, SchoologySetup.exe or SchoologyAutopilot.exe in:
 echo   %PARENT%
 echo If either program is running, close it and build again.
 goto finish_fail

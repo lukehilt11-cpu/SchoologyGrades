@@ -394,7 +394,7 @@ for i in $(seq 1 60); do kill -0 "$PID" 2>/dev/null || break; sleep 0.5; done
 MNT="$(mktemp -d /tmp/sgupdate.XXXXXX)"
 if ! hdiutil attach -nobrowse -quiet -readonly -mountpoint "$MNT" "$DMG"; then open "$DMG"; exit 1; fi
 ok=1
-for app in SchoologyGrades SchoologySetup; do
+for app in SchoologyGrades SchoologySetup SchoologyAutopilot; do
     [ -d "$MNT/$app.app" ] || continue
     rm -rf "$DEST/$app.app.old"
     [ -d "$DEST/$app.app" ] && mv "$DEST/$app.app" "$DEST/$app.app.old"
@@ -463,9 +463,9 @@ def _spawn(args):
 
 
 def launch_sibling(name):
-    """Start the other program ("grades" or "setup") from the same place. True if it started."""
-    programs = {"grades": "SchoologyGrades", "setup": "SchoologySetup"}
-    scripts = {"grades": "grades.pyw", "setup": "setup.py"}
+    """Start another program ("grades", "setup" or "autopilot") from the same place. True if it started."""
+    programs = {"grades": "SchoologyGrades", "setup": "SchoologySetup", "autopilot": "SchoologyAutopilot"}
+    scripts = {"grades": "grades.pyw", "setup": "setup.py", "autopilot": "autopilot.py"}
     try:
         if getattr(sys, "frozen", False):
             if sys.platform == "darwin":
@@ -987,6 +987,7 @@ def add_help_menu(root, extras=()):
     help_menu.add_command(label="Check for updates...", command=lambda: check_updates_now(root))
     help_menu.add_separator()
     help_menu.add_command(label="Open the data folder", command=lambda: open_folder(DATA_DIR))
+    help_menu.add_command(label="Automatic checks (Autopilot)...", command=lambda: launch_sibling("autopilot"))
     help_menu.add_command(label="Report a problem...", command=lambda: report_problem(root))
     for label, command in extras:
         help_menu.add_command(label=label, command=command)
@@ -1141,6 +1142,357 @@ def report_problem(root):
     ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right", padx=(8, 0))
     ttk.Button(buttons, text="Make the file", command=make).pack(side="right")
     _center_over(win, root)
+
+
+# --------------------------------------------------------------------------
+# Autopilot: scheduled quiet checks, change alerts and notifications
+# --------------------------------------------------------------------------
+AUTO_FILE = "auto.json"
+AUTO_LOG = "auto_log.txt"
+LOCK_FILE = ".check_running"
+TASK_NAME = "SchoologyGradeChecker-Autopilot"
+LAUNCH_LABEL = "local.schoologygrades.autopilot"
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+AUTO_DEFAULTS = {
+    "enabled": False,
+    "days": [0, 1, 2, 3, 4],
+    "times": ["15:30"],
+    "notify": {"changes": True, "new_grades": True, "missing": True, "low": True, "low_below": 80},
+}
+
+
+def valid_time(text):
+    return bool(re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(text)))
+
+
+def format_time12(text):
+    """'15:30' -> '3:30 PM'."""
+    hour, minute = int(text[:2]), text[3:5]
+    return f"{(hour + 11) % 12 + 1}:{minute} {'AM' if hour < 12 else 'PM'}"
+
+
+def read_auto():
+    """Autopilot's settings from auto.json, with anything missing or odd replaced by the defaults."""
+    out = json.loads(json.dumps(AUTO_DEFAULTS))
+    try:
+        with open(AUTO_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        return out
+    out["enabled"] = bool(data.get("enabled"))
+    if isinstance(data.get("days"), list):
+        out["days"] = sorted({d for d in data["days"] if isinstance(d, int) and not isinstance(d, bool) and 0 <= d <= 6})
+    if isinstance(data.get("times"), list):
+        out["times"] = sorted({t for t in data["times"] if valid_time(t)})[:4]
+    notify_cfg = data.get("notify") if isinstance(data.get("notify"), dict) else {}
+    for key in ("changes", "new_grades", "missing", "low"):
+        if key in notify_cfg:
+            out["notify"][key] = bool(notify_cfg[key])
+    low = notify_cfg.get("low_below")
+    if isinstance(low, (int, float)) and not isinstance(low, bool) and 0 < low <= 100:
+        out["notify"]["low_below"] = low
+    if isinstance(data.get("last_signin_notice"), (int, float)):
+        out["last_signin_notice"] = float(data["last_signin_notice"])
+    return out
+
+
+def write_auto(settings):
+    try:
+        with open(AUTO_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=1)
+        return True
+    except OSError:
+        return False
+
+
+def next_run(settings, now=None):
+    """When the next scheduled check is (a datetime), or None if nothing is scheduled."""
+    from datetime import timedelta
+
+    if not settings.get("days") or not settings.get("times"):
+        return None
+    now = now or datetime.now()
+    for offset in range(0, 8):
+        day = (now + timedelta(days=offset)).date()
+        if day.weekday() not in settings["days"]:
+            continue
+        for t in sorted(settings["times"]):
+            moment = datetime(day.year, day.month, day.day, int(t[:2]), int(t[3:5]))
+            if moment > now:
+                return moment
+    return None
+
+
+def auto_log(line):
+    """One line in auto_log.txt (the newest 100 are kept)."""
+    try:
+        try:
+            with open(AUTO_LOG, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            lines = []
+        lines.append(f"{datetime.now():%Y-%m-%d %H:%M}  {line}")
+        with open(AUTO_LOG, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines[-100:]) + "\n")
+    except OSError:
+        pass
+
+
+def last_auto_line():
+    try:
+        with open(AUTO_LOG, "r", encoding="utf-8") as f:
+            lines = [x for x in f.read().splitlines() if x.strip()]
+        return lines[-1] if lines else ""
+    except OSError:
+        return ""
+
+
+# ---- one check at a time: the program's Chrome profile can't be shared ----------------------
+LOCK_STALE_SECONDS = 15 * 60
+
+
+def lock_busy():
+    try:
+        return time.time() - os.path.getmtime(LOCK_FILE) < LOCK_STALE_SECONDS
+    except OSError:
+        return False
+
+
+def acquire_lock():
+    if lock_busy():
+        return False
+    try:
+        with open(LOCK_FILE, "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+    return True
+
+
+def release_lock():
+    try:
+        os.remove(LOCK_FILE)
+    except OSError:
+        pass
+
+
+def wait_for_idle(status, max_wait=120):
+    """If a scheduled check is running, let it finish first (up to two minutes)."""
+    waited = 0
+    while lock_busy() and waited < max_wait:
+        if waited == 0:
+            status("A scheduled check is finishing...")
+        time.sleep(2)
+        waited += 2
+
+
+# ---- what changed since last time ---------------------------------------------------------
+def _num(n):
+    return "%g" % round(n, 2)
+
+
+def _item_key(item):
+    return f"{item.get('c')}|{item.get('n')}|{item.get('d')}"
+
+
+def build_alerts(previous, current, notify=None):
+    """Plain-English lines about what changed between two checks (an empty list if nothing did).
+
+    previous / current: lists of results (as saved in last_report.json). With no previous
+    check there is nothing to compare, so the first run only sets the baseline."""
+    cfg = dict(AUTO_DEFAULTS["notify"])
+    cfg.update(notify or {})
+    if not previous:
+        return []
+    before = {r.get("url") or r.get("name"): r for r in previous}
+    lines = []
+    for r in current:
+        old = before.get(r.get("url") or r.get("name"))
+        if old is None:
+            continue
+        parts = []
+        now, was = r.get("pct"), old.get("pct")
+        if isinstance(now, (int, float)) and isinstance(was, (int, float)):
+            change = round(now - was, 2)
+            if cfg["changes"] and abs(change) >= 0.05:
+                sign = "+" if change > 0 else "\u2212"
+                parts.append(f"{_num(was)}% \u2192 {_num(now)}% ({sign}{_num(abs(change))})")
+            if cfg["low"] and now < cfg["low_below"] <= was:
+                parts.append(f"dropped below {_num(cfg['low_below'])}%")
+        if old.get("items"):  # an older saved report has no assignments to compare
+            graded = lambda res: {_item_key(i) for i in res.get("items") or [] if isinstance(i.get("s"), (int, float))}
+            fresh = len(graded(r) - graded(old))
+            if cfg["new_grades"] and fresh:
+                parts.append(f"{fresh} new grade{'s' if fresh != 1 else ''}")
+            seen = {_item_key(i) for i in old.get("items") or [] if i.get("x")}
+            newly = [i["n"] for i in r.get("items") or [] if i.get("x") and _item_key(i) not in seen]
+            if cfg["missing"] and newly:
+                parts.append("missing: " + ", ".join(newly[:2]) + (f" and {len(newly) - 2} more" if len(newly) > 2 else ""))
+        if parts:
+            lines.append(f"{r.get('name', 'A class')}: " + "; ".join(parts))
+    return lines
+
+
+def compose_notification(lines):
+    """(title, message) for a notification about these lines."""
+    shown = lines[:4]
+    if len(lines) > 4:
+        shown.append(f"and {len(lines) - 4} more")
+    return ("Grade update" if len(lines) == 1 else f"Grade updates ({len(lines)} classes)"), "\n".join(shown)
+
+
+_TOAST_SCRIPT = (
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;"
+    "$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+    "$n = $t.GetElementsByTagName('text');"
+    "$n.Item(0).AppendChild($t.CreateTextNode($env:SG_TITLE)) | Out-Null;"
+    "$n.Item(1).AppendChild($t.CreateTextNode($env:SG_BODY)) | Out-Null;"
+    "$toast = [Windows.UI.Notifications.ToastNotification]::new($t);"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show($toast)"
+)
+
+
+def _run(args, timeout=30, env=None):
+    """subprocess.run with no console window. Returns the result, or None if it couldn't run."""
+    kwargs = dict(stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, env=env or _clean_env())
+    if os.name == "nt":
+        kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+    try:
+        return subprocess.run(args, **kwargs)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def notify(title, message):
+    """Show a desktop notification. True if the system accepted it."""
+    env = dict(_clean_env())
+    env.update(SG_TITLE=title, SG_BODY=message)  # passed as variables, so no quoting problems
+    if os.name == "nt":
+        args = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", _TOAST_SCRIPT]
+    elif sys.platform == "darwin":
+        args = ["osascript", "-e", 'display notification (system attribute "SG_BODY") with title (system attribute "SG_TITLE")']
+    elif shutil.which("notify-send"):
+        args = ["notify-send", title, message]
+    else:
+        return False
+    result = _run(args, timeout=20, env=env)
+    return bool(result) and result.returncode == 0
+
+
+# ---- the schedule itself: Windows Task Scheduler / a macOS launch agent -----------------------
+def auto_command():
+    """The command that runs the grade checker quietly, or None if it can't be found."""
+    if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            exe = os.path.join(APP_DIR, "SchoologyGrades.app", "Contents", "MacOS", "SchoologyGrades")
+        else:
+            exe = os.path.join(os.path.dirname(sys.executable), "SchoologyGrades" + (".exe" if os.name == "nt" else ""))
+        return [exe, "--auto"] if os.path.isfile(exe) else None
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grades.pyw")
+    return [sys.executable, script, "--auto"] if os.path.isfile(script) else None
+
+
+def windows_task_xml(settings, command):
+    """The Task Scheduler definition: runs at each chosen time on the chosen days, and catches up if the computer was off."""
+    from xml.sax.saxutils import escape
+
+    names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    days = "".join(f"<{names[d]} />" for d in settings["days"])
+    start = datetime.now().strftime("%Y-%m-%d")
+    triggers = "".join(
+        f"<CalendarTrigger><StartBoundary>{start}T{t}:00</StartBoundary><Enabled>true</Enabled>"
+        f"<ScheduleByWeek><DaysOfWeek>{days}</DaysOfWeek><WeeksInterval>1</WeeksInterval></ScheduleByWeek></CalendarTrigger>"
+        for t in settings["times"]
+    )
+    args = " ".join('"%s"' % a if " " in a else a for a in command[1:])
+    return (
+        '<?xml version="1.0" encoding="UTF-16"?>\n'
+        '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">'
+        "<RegistrationInfo><Description>Checks your Schoology grades quietly and tells you what changed.</Description></RegistrationInfo>"
+        f"<Triggers>{triggers}</Triggers>"
+        '<Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>'
+        "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"
+        "<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable>"
+        "<AllowStartOnDemand>true</AllowStartOnDemand><Enabled>true</Enabled><Hidden>false</Hidden>"
+        "<ExecutionTimeLimit>PT15M</ExecutionTimeLimit></Settings>"
+        f'<Actions Context="Author"><Exec><Command>{escape(command[0])}</Command><Arguments>{escape(args)}</Arguments></Exec></Actions></Task>'
+    )
+
+
+def launch_agent_plist(settings, command):
+    """The macOS launch agent: runs at each chosen time on the chosen days (missed runs happen when the Mac wakes)."""
+    import plistlib
+
+    # launchd: 0 or 7 is Sunday, 1 is Monday ... ours: 0 is Monday ... 6 is Sunday
+    when = [{"Weekday": (d + 1) % 7, "Hour": int(t[:2]), "Minute": int(t[3:5])} for d in settings["days"] for t in settings["times"]]
+    return plistlib.dumps({"Label": LAUNCH_LABEL, "ProgramArguments": list(command), "StartCalendarInterval": when,
+                           "RunAtLoad": False, "ProcessType": "Background"})
+
+
+def _agent_path():
+    return os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", LAUNCH_LABEL + ".plist")
+
+
+def install_schedule(settings):
+    """Create (or replace) the scheduled job. Returns (ok, message)."""
+    if not settings.get("days") or not settings.get("times"):
+        return False, "Pick at least one day and one time."
+    command = auto_command()
+    if not command:
+        return False, "Couldn't find Schoology Grades next to this program."
+    if os.name == "nt":
+        xml_path = os.path.join(tempfile.gettempdir(), "schoology-autopilot-task.xml")
+        try:
+            with open(xml_path, "w", encoding="utf-16") as f:
+                f.write(windows_task_xml(settings, command))
+            result = _run(["schtasks", "/Create", "/TN", TASK_NAME, "/XML", xml_path, "/F"])
+        finally:
+            try:
+                os.remove(xml_path)
+            except OSError:
+                pass
+        if result is None or result.returncode != 0:
+            return False, "Windows wouldn't set up the schedule" + (": " + result.stderr.decode("utf-8", "replace").strip() if result and result.stderr else ".")
+        return True, "Scheduled."
+    if sys.platform == "darwin":
+        path = _agent_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(launch_agent_plist(settings, command))
+        except OSError as e:
+            return False, f"Couldn't save the schedule: {e}"
+        domain = f"gui/{os.getuid()}"
+        _run(["launchctl", "bootout", f"{domain}/{LAUNCH_LABEL}"])  # replace an older copy; fine if there isn't one
+        result = _run(["launchctl", "bootstrap", domain, path])
+        if result is None or result.returncode != 0:
+            return False, "macOS wouldn't set up the schedule."
+        return True, "Scheduled."
+    return False, "Automatic checks work on Windows and Mac."
+
+
+def remove_schedule():
+    """Delete the scheduled job (fine if there isn't one). Returns (ok, message)."""
+    if os.name == "nt":
+        _run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"])
+        return True, "Removed."
+    if sys.platform == "darwin":
+        _run(["launchctl", "bootout", f"gui/{os.getuid()}/{LAUNCH_LABEL}"])
+        try:
+            os.remove(_agent_path())
+        except OSError:
+            pass
+        return True, "Removed."
+    return True, "Nothing to remove."
+
+
+def schedule_installed():
+    if os.name == "nt":
+        result = _run(["schtasks", "/Query", "/TN", TASK_NAME])
+        return bool(result) and result.returncode == 0
+    return sys.platform == "darwin" and os.path.isfile(_agent_path())
 
 
 def _save_page(driver, path):

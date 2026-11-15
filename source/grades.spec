@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Don't run this directly; use build.bat (Windows) or build.sh (macOS) in this folder.
-#   Windows -> 1. dist/SchoologyGrades/   one folder holding SchoologyGrades.exe and
-#                 SchoologySetup.exe, sharing one runtime (fast launches; the installer packs this)
-#              2. dist/SchoologyGrades-portable.exe and dist/SchoologySetup-portable.exe
-#                 single-file programs (build.bat copies them next to "source")
-#   macOS   -> SchoologyGrades.app + SchoologySetup.app (build.sh copies them next to
+#   Windows -> 1. dist/SchoologyGrades/   one folder holding SchoologyGrades.exe,
+#                 SchoologySetup.exe and SchoologyAutopilot.exe, sharing one runtime (fast launches; the installer packs this)
+#              2. dist/SchoologyGrades-portable.exe, dist/SchoologySetup-portable.exe and
+#                 dist/SchoologyAutopilot-portable.exe: single-file programs (build.bat copies them next to "source")
+#   macOS   -> SchoologyGrades.app + SchoologySetup.app + SchoologyAutopilot.app (build.sh copies them next to
 #              "source" and packs them into a .dmg)
 
 import os
@@ -21,8 +21,8 @@ REPO_FILE = os.path.join(SPECPATH, "REPO")        # added by the GitHub build; s
 
 def ensure_icons():
     """Make sure the icon files exist; draw them with make_icons.py if they don't."""
-    needed = ["grades_256.png", "grades_64.png", "setup_256.png"]
-    needed += ["grades.icns", "setup.icns"] if IS_MAC else ["grades.ico", "setup.ico"]
+    needed = ["grades_256.png", "grades_64.png", "setup_256.png", "auto_256.png"]
+    needed += ["grades.icns", "setup.icns", "auto.icns"] if IS_MAC else ["grades.ico", "setup.ico", "auto.ico"]
     missing = [n for n in needed if not os.path.exists(os.path.join(ICON_DIR, n))]
     if missing:
         maker = os.path.join(SPECPATH, "make_icons.py")
@@ -53,6 +53,7 @@ selenium_modules = collect_submodules("selenium")
 APPS = (
     ("grades.pyw", "SchoologyGrades", "grades"),
     ("setup.py", "SchoologySetup", "setup"),
+    ("autopilot.py", "SchoologyAutopilot", "auto"),
 )
 
 

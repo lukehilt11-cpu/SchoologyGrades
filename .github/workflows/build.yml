@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for f in source/build.sh source/build.bat source/grades.pyw source/setup.py source/sgcommon.py \
+          for f in source/build.sh source/build.bat source/grades.pyw source/setup.py source/autopilot.py source/sgcommon.py \
                    source/grades.spec source/make_icons.py source/installer.iss source/dmg_settings.py source/VERSION; do
             if [ ! -f "$f" ]; then echo "::error::Missing from the repository: $f"; missing=1; fi
           done
@@ -112,7 +112,7 @@ jobs:
         shell: pwsh
         run: |
           $v = (Get-Content source/VERSION -TotalCount 1).Trim()
-          Compress-Archive -Path SchoologyGrades.exe, SchoologySetup.exe -DestinationPath "releases/SchoologyGrades-$v-exes.zip" -Force
+          Compress-Archive -Path SchoologyGrades.exe, SchoologySetup.exe, SchoologyAutopilot.exe -DestinationPath "releases/SchoologyGrades-$v-exes.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
@@ -131,7 +131,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for f in source/build.sh source/build.bat source/grades.pyw source/setup.py source/sgcommon.py \
+          for f in source/build.sh source/build.bat source/grades.pyw source/setup.py source/autopilot.py source/sgcommon.py \
                    source/grades.spec source/make_icons.py source/installer.iss source/dmg_settings.py source/VERSION; do
             if [ ! -f "$f" ]; then echo "::error::Missing from the repository: $f"; missing=1; fi
           done
@@ -244,9 +244,9 @@ jobs:
               body += "**What's new:** " + notes + "\n\n"
           body += """**Windows:** download **SchoologyGrades-Setup.exe** and run it. If Windows says it "protected your PC", click **More info**, then **Run anyway**. When it finishes, Setup opens so you can choose your classes.
 
-          **Mac (Apple Silicon):** download **SchoologyGrades.dmg**, open it, and drag both apps onto **Applications**. The first time you open each app, macOS blocks it: open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the app's name.
+          **Mac (Apple Silicon):** download **SchoologyGrades.dmg**, open it, and drag all three apps onto **Applications**. The first time you open each app, macOS blocks it: open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the app's name.
 
-          **Windows without installing:** **SchoologyGrades-portable.zip** holds the two programs on their own.
+          **Windows without installing:** **SchoologyGrades-portable.zip** holds the three programs (Grades, Setup and Autopilot) on their own.
 
           Already installed? The program offers to update itself (Help > Check for updates), or run the new installer over the old one. Your saved login and classes are kept.
           """

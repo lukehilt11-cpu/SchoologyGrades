@@ -43,10 +43,15 @@ Source: "{#AppSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 [Icons]
 Name: "{group}\Schoology Grades"; Filename: "{app}\SchoologyGrades.exe"
 Name: "{group}\Schoology Setup"; Filename: "{app}\SchoologySetup.exe"
+Name: "{group}\Schoology Autopilot"; Filename: "{app}\SchoologyAutopilot.exe"
 Name: "{autodesktop}\Schoology Grades"; Filename: "{app}\SchoologyGrades.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
+
+[UninstallRun]
+; Autopilot's scheduled check goes away with the program.
+Filename: "schtasks"; Parameters: "/Delete /TN SchoologyGradeChecker-Autopilot /F"; Flags: runhidden; RunOnceId: "RemoveAutopilotTask"
 
 [Run]
 ; The last page of the installer offers the next sensible step: a first install

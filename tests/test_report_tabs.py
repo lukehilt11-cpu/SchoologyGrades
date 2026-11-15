@@ -113,6 +113,17 @@ with sync_playwright() as p:
         check("[%s] What-if: needed score for a 90%% (by hand: 11.95 of 10)" % theme, "11.95 out of 10" in out, out)
         ctx.close()
 
+    print("Grading periods in page order")
+    only_q2 = result("Only Q2", 96.0, {"periods": [{"n": "26-27 Q1", "w": 50, "p": None}, {"n": "26-27 Q2", "w": 50, "p": 96.0}], "items": []})
+    both = result("Both", 90.0, {"periods": [{"n": "26-27 Q1", "w": 50, "p": 88.0}, {"n": "26-27 Q2", "w": 50, "p": 92.0}], "items": []})
+    ctx = browser.new_context(viewport={"width": 700, "height": 560})
+    pg = ctx.new_page()
+    pg.goto(render("order", [only_q2, both]))
+    check("picker lists Semester, Q1, Q2 even when the first class only has Q2", pg.locator("#scope button").all_inner_texts() == ["Semester", "Q1", "Q2"], pg.locator("#scope button").all_inner_texts())
+    pg.click("#t-stats")
+    check("Quarter to quarter columns also run Q1 then Q2", pg.locator(".qt th").all_inner_texts() == ["Class", "Q1", "Q2", "Change"], pg.locator(".qt th").all_inner_texts())
+    ctx.close()
+
     print("Reports without that data")
     plain = [{"name": "Algebra 2", "pct": 94.62, "official": "A", "custom": ""}]
     ctx = browser.new_context(viewport={"width": 700, "height": 560})

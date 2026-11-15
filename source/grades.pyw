@@ -16,6 +16,7 @@ import json
 import math
 import os
 import re
+import sys
 import threading
 import time
 import tkinter as tk
@@ -38,22 +39,31 @@ from sgcommon import (
     TRANSLOCATED,
     FriendlyError,
     Timeline,
+    acquire_lock,
     add_help_menu,
     app_version,
+    auto_log,
+    build_alerts,
     check_for_update,
     close_browser,
+    compose_notification,
     explain,
     launch_sibling,
     log_error,
     log_in,
     make_driver,
+    notify,
     offer_update,
     open_app_window,
+    read_auto,
+    release_lock,
     resource_path,
     set_window_icon,
     show_error_dialog,
     update_prompt_snoozed,
+    wait_for_idle,
     wait_until,
+    write_auto,
 )
 
 # The special grade scale is switched on by a salted, deliberately slow hash of one
@@ -939,8 +949,11 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
   var node = document.getElementById("sgdata"), D;
   try { D = JSON.parse(node.textContent); } catch (e) { return; }
   var classes = D.classes || [], scopes = ["Semester"], seen = {}, scope = "Semester", view = "attention";
+  var order = [], graded = {};
   classes.forEach(function (c) { (c.periods || []).forEach(function (p) {
-    if (typeof p.p === "number" && !seen[p.n]) { seen[p.n] = 1; scopes.push(p.n); } }); });
+    if (order.indexOf(p.n) < 0) order.push(p.n);
+    if (typeof p.p === "number") graded[p.n] = 1; }); });
+  order.forEach(function (n) { if (graded[n]) scopes.push(n); });
   var hasItems = classes.some(function (c) { return (c.items || []).length; });
   var hasGrades = classes.some(function (c) { return typeof c.g === "number"; });
   if (scopes.length < 2 && !hasItems && !hasGrades) return;
@@ -1373,8 +1386,11 @@ def worker(root, status_label, on_ok, on_error):
         except Exception:
             pass
 
+    locked = False
     try:
         config = load_config()
+        wait_for_idle(status)  # a scheduled (Autopilot) check may be running: let it finish first
+        locked = acquire_lock()
         # Ask (quietly, in the background) whether a newer version has been published.
         update = {}
         checker = threading.Thread(target=lambda: update.update(info=check_for_update()), daemon=True)
@@ -1394,6 +1410,46 @@ def worker(root, status_label, on_ok, on_error):
         if friendly.kind != "needs_setup":  # not really an error: they just haven't set up yet
             log_error(traceback.format_exc())
         root.after(0, lambda f=friendly: on_error(f))
+    finally:
+        if locked:
+            release_lock()
+
+
+def run_auto():
+    """A scheduled check with no window (SchoologyGrades --auto). It saves the grades and a fresh report,
+    and sends a notification only when something changed. Returns the exit code."""
+    if not acquire_lock():
+        auto_log("Skipped: another check was already running")
+        return 0
+    try:
+        settings = read_auto()
+        config = load_config()
+        previous = load_last_report()
+        results, use_custom = scrape_all(config, lambda text: None)
+        for result, url in zip(results, dict.fromkeys(config["class_urls"])):
+            result["url"] = url
+        save_last_report(results, use_custom)
+        write_report(results, use_custom, None, previous=previous[0] if previous else None)
+        lines = build_alerts(previous[0] if previous else None, results, settings["notify"])
+        if lines:
+            notify(*compose_notification(lines))
+        auto_log(f"Checked {len(results)} classes, " + (f"told you about {len(lines)}" if lines else "nothing new"))
+        return 0
+    except Exception as e:
+        friendly = explain(e)
+        if friendly.kind != "needs_setup":
+            log_error(traceback.format_exc())
+        auto_log("Couldn't check: " + friendly.title)
+        if friendly.kind in ("sign_in", "signed_out", "bad_login"):
+            settings = read_auto()
+            if time.time() - settings.get("last_signin_notice", 0) > 20 * 3600:  # once a day is enough
+                notify("Please sign in again", "Open Schoology Grades and choose Sign in. Until then, Autopilot can't check your grades.")
+                settings["last_signin_notice"] = time.time()
+                write_auto(settings)
+        return 1
+    finally:
+        close_browser()
+        release_lock()
 
 
 def main():
@@ -1510,4 +1566,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--auto" in sys.argv:
+        sys.exit(run_auto())
     main()

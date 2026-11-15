@@ -47,7 +47,7 @@ run() { "$@" >> "$LOG" 2>&1 || fail; }
 # ---- nothing changed since the last build?
 LOOSE_OK=1
 if [ "$(uname)" = "Darwin" ]; then
-    [ -d ../SchoologyGrades.app ] && [ -d ../SchoologySetup.app ] || LOOSE_OK=0
+    [ -d ../SchoologyGrades.app ] && [ -d ../SchoologySetup.app ] && [ -d ../SchoologyAutopilot.app ] || LOOSE_OK=0
 fi
 if [ $FORCE -eq 0 ] && [ $DEV -eq 0 ] && [ $LOOSE_OK -eq 1 ] && [ -f "$TARGET" ]; then
     CHANGED="$(find . -type f -newer "$TARGET" -not -path '*/__pycache__/*' | head -n 1)"
@@ -83,7 +83,7 @@ fi
 
 # ---- 2/6 icons (only redrawn when missing or older than make_icons.py)
 ICONS_OK=1
-for f in grades.icns grades.ico grades_256.png grades_64.png setup.icns setup.ico setup_256.png wizard_large.bmp wizard_small.bmp dmg_background.png; do
+for f in grades.icns grades.ico grades_256.png grades_64.png setup.icns setup.ico setup_256.png auto.icns auto.ico auto_256.png wizard_large.bmp wizard_small.bmp dmg_background.png; do
     if [ ! -f "icons/$f" ] || [ "make_icons.py" -nt "icons/$f" ]; then
         ICONS_OK=0
     fi
@@ -95,7 +95,7 @@ else
     echo "[2/6] Drawing icons..."
     run "$PY" make_icons.py
 fi
-for f in grades.icns grades_256.png grades_64.png setup.icns setup_256.png; do
+for f in grades.icns grades_256.png grades_64.png setup.icns setup_256.png auto.icns auto_256.png; do
     if [ ! -f "icons/$f" ]; then
         echo "The icon file icons/$f is missing, and drawing the icons didn't create it."
         echo "Is make_icons.py in the same folder as build.sh?"
@@ -112,9 +112,9 @@ run "$PY" -m PyInstaller --noconfirm $CLEAN --log-level WARN \
 
 # ---- 4/6 the apps, next to "source" (a data folder appears beside them when they run)
 if [ "$(uname)" = "Darwin" ]; then
-    echo "[4/6] Updating SchoologyGrades.app and SchoologySetup.app..."
-    rm -rf ../SchoologyGrades.app ../SchoologySetup.app
-    run cp -R "$WORK/dist/SchoologyGrades.app" "$WORK/dist/SchoologySetup.app" ..
+    echo "[4/6] Updating SchoologyGrades.app, SchoologySetup.app and SchoologyAutopilot.app..."
+    rm -rf ../SchoologyGrades.app ../SchoologySetup.app ../SchoologyAutopilot.app
+    run cp -R "$WORK/dist/SchoologyGrades.app" "$WORK/dist/SchoologySetup.app" "$WORK/dist/SchoologyAutopilot.app" ..
 else
     echo "[4/6] (Linux builds only make a .tar.gz)"
 fi
@@ -134,7 +134,7 @@ elif [ "$(uname)" = "Darwin" ]; then
         STAGE="$WORK/dmg"
         rm -rf "$STAGE" "$TARGET"
         mkdir -p "$STAGE"
-        run cp -R "$WORK/dist/SchoologyGrades.app" "$WORK/dist/SchoologySetup.app" "$STAGE/"
+        run cp -R "$WORK/dist/SchoologyGrades.app" "$WORK/dist/SchoologySetup.app" "$WORK/dist/SchoologyAutopilot.app" "$STAGE/"
         run ln -s /Applications "$STAGE/Applications"
         run hdiutil create -volname "Schoology Grade Checker" -srcfolder "$STAGE" -ov -format UDZO "$TARGET"
     fi
@@ -153,7 +153,7 @@ rm -rf "$WORK/dist" "$WORK/dmg" __pycache__ build dist
 echo
 echo "Done."
 if [ "$(uname)" = "Darwin" ]; then
-    echo "  Apps:       $(cd .. && pwd)/SchoologyGrades.app and SchoologySetup.app"
+    echo "  Apps:       $(cd .. && pwd)/SchoologyGrades.app, SchoologySetup.app and SchoologyAutopilot.app"
 fi
 [ -n "$RESULT" ] && echo "  Disk image: $RESULT"
 

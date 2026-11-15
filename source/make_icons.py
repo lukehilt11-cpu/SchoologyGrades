@@ -2,7 +2,7 @@
 
 Everything is written into the "icons" folder next to this file.
 
-Writes, for both programs, name.ico / name.icns / name_256.png, plus grades_64.png (the
+Writes, for all three programs, name.ico / name.icns / name_256.png, plus grades_64.png (the
 report's tab icon), the installer's wizard pictures (wizard_large.bmp, wizard_small.bmp)
 and the disk image background (dmg_background.png).
 Edit the colours or shapes below and run it again to restyle everything.
@@ -115,10 +115,33 @@ def art_setup(T):
     return layer
 
 
+def art_auto(T):
+    """A clock inside a circling arrow: checks that run by themselves."""
+    glyph = Image.new("RGBA", (T, T), (0, 0, 0, 0))
+    d = ImageDraw.Draw(glyph)
+    cx = cy = T * 0.5
+    r, w = T * 0.285, T * 0.078
+    white = (255, 255, 255, 255)
+    d.arc([cx - r, cy - r, cx + r, cy + r], start=-45, end=270, fill=white, width=int(w))
+    circle(d, cx + r * 0.7071, cy - r * 0.7071, w / 2, fill=white)  # round start of the arc
+    # arrow head at the top of the ring, pointing the way the arc runs (clockwise)
+    d.polygon([(cx + T * 0.085, cy - r), (cx - T * 0.012, cy - r - T * 0.078), (cx - T * 0.012, cy - r + T * 0.078)], fill=white)
+    # clock hands
+    stroke(d, (cx, cy), (cx, cy - T * 0.150), T * 0.062)
+    stroke(d, (cx, cy), (cx + T * 0.105, cy + T * 0.055), T * 0.062)
+    shade = np.linspace(0, 1, T)[:, None, None]
+    top, bottom = np.array([255, 255, 255]), np.array([214, 250, 228])
+    rgb = (top * (1 - shade) + bottom * shade) * np.ones((1, T, 1))
+    colored = Image.fromarray(rgb.astype("uint8"), "RGB").convert("RGBA")
+    colored.putalpha(glyph.getchannel("A"))
+    return with_shadow(colored, int(T * 0.022), T * 0.03, 0.38)
+
+
 # ---------------------------------------------------------------- icons
 ICONS = {
     "grades": dict(art=art_grades, c1=(94, 92, 230), c2=(18, 188, 240)),   # indigo -> cyan
     "setup": dict(art=art_setup, c1=(251, 146, 60), c2=(225, 29, 72)),     # amber -> rose
+    "auto": dict(art=art_auto, c1=(74, 222, 128), c2=(21, 128, 61)),       # light green -> forest green
 }
 
 
