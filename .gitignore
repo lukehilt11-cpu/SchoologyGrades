@@ -5,3 +5,4 @@ __pycache__/
 /SchoologyAutopilot.exe
 /SchoologyGrades.exe
 /SchoologySetup.exe
+/tests/pages/
