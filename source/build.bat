@@ -70,6 +70,22 @@ python -m pip install --quiet --disable-pip-version-check pyinstaller "selenium>
 if errorlevel 1 goto fail
 :tools_done
 
+rem ---- Inno Setup (makes the installer; not needed for dev builds)
+if "%DEV%"=="1" goto inno_done
+call :find_iscc
+if defined ISCC goto inno_done
+if defined CI goto inno_done
+echo Inno Setup is needed to make the installer and isn't installed.
+choice /c YN /m "Install it now (small, quiet, nothing will pop up)"
+if errorlevel 2 goto inno_done
+where winget >nul 2>&1
+if errorlevel 1 goto inno_done
+echo      Installing Inno Setup...
+winget install --id JRSoftware.InnoSetup -e --accept-package-agreements --accept-source-agreements --override "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER" >> "%LOG%" 2>&1
+call :find_iscc
+if not defined ISCC echo      Couldn't install it, so this build will make a portable zip instead.
+:inno_done
+
 rem ---- 2/6 icons (only redrawn when missing or older than make_icons.py)
 set "ICONS_OK=1"
 for %%F in (grades.ico grades.icns grades_256.png grades_64.png setup.ico setup.icns setup_256.png auto.ico auto.icns auto_256.png wizard_large.bmp wizard_small.bmp dmg_background.png) do if not exist "icons\%%F" set "ICONS_OK=0"
@@ -110,11 +126,8 @@ if errorlevel 1 goto locked
 copy /y "%WORK%\dist\SchoologyAutopilot-portable.exe" "%PARENT%\SchoologyAutopilot.exe" >> "%LOG%" 2>&1
 if errorlevel 1 goto locked
 
-rem ---- 5/6 the installer
+rem ---- 5/6 the installer (ISCC was located or installed up in step 1)
 if "%DEV%"=="1" goto skip_installer
-set "ISCC="
-for %%P in ("%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do if exist %%P set "ISCC=%%~P"
-if not defined ISCC for /f "delims=" %%P in ('where ISCC.exe 2^>nul') do set "ISCC=%%P"
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 if defined ISCC goto make_installer
 echo [5/6] Inno Setup not found, making a portable zip instead...
@@ -184,4 +197,11 @@ exit /b 1
 :finish
 if defined CI exit /b 0
 echo %cmdcmdline% | find /i "/c" >nul && pause
+exit /b 0
+
+rem ---- subroutine: sets ISCC to the Inno Setup compiler if it can be found
+:find_iscc
+set "ISCC="
+for %%P in ("%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do if exist %%P set "ISCC=%%~P"
+if not defined ISCC for /f "delims=" %%P in ('where ISCC.exe 2^>nul') do set "ISCC=%%P"
 exit /b 0
