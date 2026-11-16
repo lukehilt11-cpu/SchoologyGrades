@@ -2,20 +2,28 @@
 # macOS build:   bash build.sh            the apps next to "source" AND a .dmg in ../releases
 #                bash build.sh force      rebuild even if nothing has changed
 #                bash build.sh dev        the apps only (skips the .dmg)
-#                bash build.sh run        when done, open the disk image (or, with dev, the app)
+#                bash build.sh run        with dev: also open the app when done
+#                bash build.sh norun      don't open the disk image when done
+#                A normal build opens the disk image when it finishes (not on GitHub, and not with dev).
 set -u
 cd "$(dirname "$0")" || exit 1
 
 FORCE=0
 DEV=0
-RUN=0
+RUN=auto
 for arg in "$@"; do
     case "$arg" in
         force) FORCE=1 ;;
         dev) DEV=1 ;;
         run) RUN=1 ;;
+        norun) RUN=0 ;;
     esac
 done
+if [ "$RUN" = auto ]; then
+    RUN=1
+    if [ $DEV -eq 1 ]; then RUN=0; fi
+    if [ -n "${CI:-}" ]; then RUN=0; fi
+fi
 
 VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null)"
 VERSION="${VERSION:-1.0}"

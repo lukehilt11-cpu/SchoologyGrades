@@ -5,19 +5,27 @@ cd /d "%~dp0"
 rem  build.bat            the programs next to "source" AND an installer in ..\releases
 rem  build.bat force      rebuild even if nothing has changed
 rem  build.bat dev        the programs only (skips the installer)
-rem  build.bat run        when done, open the installer (or, with dev, the program) to try it
+rem  build.bat run        with dev: also open the program when done
+rem  build.bat norun      don't open the installer when done
+rem  A normal build opens the installer when it finishes (not on GitHub, and not with dev).
 
 set "FORCE=0"
 set "DEV=0"
-set "RUN=0"
+set "RUN=auto"
 :args
 if "%~1"=="" goto args_done
 if /i "%~1"=="force" set "FORCE=1"
 if /i "%~1"=="dev" set "DEV=1"
 if /i "%~1"=="run" set "RUN=1"
+if /i "%~1"=="norun" set "RUN=0"
 shift
 goto args
 :args_done
+if "%RUN%"=="auto" (
+  set "RUN=1"
+  if "%DEV%"=="1" set "RUN=0"
+  if defined CI set "RUN=0"
+)
 
 set "VERSION=1.0"
 if exist VERSION set /p VERSION=<VERSION
