@@ -880,6 +880,29 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
 .linkbtn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
 .linkbtn:hover { color: var(--text); text-decoration: underline; }
 .linkbtn:focus-visible { outline: 2px solid var(--custom); outline-offset: 2px; }
+.topbtns { display: flex; align-items: center; gap: 8px; position: relative; flex: none; }
+#share { flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--btn); color: var(--text); display: grid; place-items: center; padding: 0; }
+#share:hover, #share[aria-expanded="true"] { background: var(--btn-hover); }
+#share:focus-visible, .mi:focus-visible { outline: 2px solid var(--custom); outline-offset: 2px; }
+#share svg { width: 19px; height: 19px; }
+#sharemenu { position: absolute; right: 0; top: 44px; z-index: 20; min-width: 210px; padding: 6px; border-radius: 14px;
+  background: var(--card); box-shadow: 0 8px 30px rgba(0,0,0,.22), 0 0 0 1px var(--line); }
+#sharemenu[hidden] { display: none; }
+.mi { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--text); font: inherit; font-size: 14px;
+  padding: 9px 12px; border-radius: 9px; cursor: pointer; }
+.mi:hover { background: var(--btn); }
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); padding: 9px 16px; border-radius: 999px;
+  background: var(--text); color: var(--card); font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .18s; }
+#toast.on { opacity: 1; }
+#sharecard { display: none; }
+@media print {
+  body > :not(#sharecard) { display: none !important; }
+  #sharecard { display: block; }
+  #sharecard .sg-card { width: auto; max-width: 720px; margin: 0 auto; }
+  body { background: #fff; padding: 0; }
+  @page { margin: 14mm; }
+}
 .foot { margin: 14px 0 0; color: var(--muted); font-size: 11.5px; text-align: center; }
 </style>
 </head>
@@ -891,11 +914,22 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
       <p class="sub">Checked __CHECKED__</p>
       __CHEER__
     </div>
-    <button id="theme" type="button" data-mode="auto" title="Theme">
-      <svg class="i-auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
-      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3L7 7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/></svg>
-    </button>
+    <div class="topbtns">
+      <button id="share" type="button" title="Share" aria-label="Share" aria-haspopup="menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3.5M7.5 8 12 3.5 16.5 8M5 13v6.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="sharemenu" role="menu" aria-label="Share these grades" hidden>
+        <button class="mi" role="menuitem" type="button" data-do="text">Copy text summary</button>
+        <button class="mi" role="menuitem" type="button" data-do="image">Save as image (PNG)</button>
+        <button class="mi" role="menuitem" type="button" data-do="pdf">Save as PDF&hellip;</button>
+        <button class="mi" role="menuitem" type="button" data-do="html">Save as HTML</button>
+      </div>
+      <button id="theme" type="button" data-mode="auto" title="Theme">
+        <svg class="i-auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3L7 7M17 17l1.7 1.7M5.3 18.7L7 17M17 7l1.7-1.7" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/></svg>
+      </button>
+    </div>
   </div>
   __NOTICE__
   __UPDATE__
@@ -943,6 +977,8 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
   });
 })();
 </script>
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="sharecard" aria-hidden="true"></div>
 <script>
 /* tabs, grading-period picker, assignments, stats and calculator; the grades table works without any of this */
 (function () {
@@ -1218,6 +1254,112 @@ td:first-child a:hover { color: var(--custom); border-bottom-color: var(--custom
   if (!hasItems) $("t-assign").style.display = "none";
   if (!hasGrades) { $("t-stats").style.display = "none"; $("t-calc").style.display = "none"; }
   showScope();
+})();
+</script>
+<script>
+/* Share: a text summary, an image, a PDF (through the print window) or an HTML copy of the grades as they are shown now */
+(function () {
+  var btn = document.getElementById("share"), menu = document.getElementById("sharemenu"), toastEl = document.getElementById("toast");
+  if (!btn || !menu || !document.querySelector("#grades table")) return;
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function say(text) { toastEl.textContent = text; toastEl.classList.add("on"); clearTimeout(say.t); say.t = setTimeout(function () { toastEl.classList.remove("on"); }, 2400); }
+
+  function snapshot() {
+    var t = document.querySelector("#grades table"), pick = function (s) { var e = document.querySelector(s); return e ? e.textContent.replace(/\s+/g, " ").trim() : ""; };
+    var heads = Array.prototype.map.call(t.querySelectorAll("thead th"), function (th) { return th.textContent.trim(); });
+    var rows = Array.prototype.map.call(t.querySelectorAll("tbody tr"), function (tr) {
+      return Array.prototype.map.call(tr.children, function (td) {
+        var c = td.cloneNode(true), chips = c.querySelectorAll(".delta");
+        for (var i = 0; i < chips.length; i++) chips[i].remove();
+        return c.textContent.replace(/\s+/g, " ").trim();
+      });
+    });
+    var sc = document.querySelector("#scope:not([hidden]) button[aria-pressed=true]");
+    return { heads: heads, rows: rows, scope: sc ? sc.textContent : "", checked: pick(".sub"), note: pick(".note"), foot: pick(".foot") };
+  }
+  function stem(s) {
+    var d = new Date();
+    return "Grades-" + d.getFullYear() + "-" + ("0" + (d.getMonth() + 1)).slice(-2) + "-" + ("0" + d.getDate()).slice(-2) + (s.scope ? "-" + s.scope : "");
+  }
+  var CSS = ".sg-card{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:#fff;color:#1d1d1f;padding:26px 28px 20px;width:600px;box-sizing:border-box}" +
+    ".sg-card h1{font-size:22px;margin:0;letter-spacing:-.01em}.sg-card p{margin:6px 0 0;color:#6e6e73;font-size:13px}" +
+    ".sg-card table{width:100%;border-collapse:collapse;margin-top:16px}" +
+    ".sg-card th{background:#f2f2f7;color:#555;padding:10px 14px;font-size:12.5px;font-weight:600;text-align:center;border-bottom:1px solid #e5e5ea}" +
+    ".sg-card td{padding:12px 14px;font-size:15px;text-align:center;border-bottom:1px solid #ececf0}" +
+    ".sg-card th:first-child,.sg-card td:first-child{text-align:left}.sg-card tr:last-child td{border-bottom:0}" +
+    ".sg-card .foot{margin-top:12px;text-align:center;color:#8e8e93;font-size:11.5px}";
+  function card(s) {
+    var c = el("div", "sg-card"), tbl = el("table"), hr = el("tr"), body = el("tbody");
+    c.appendChild(el("style", "", CSS));
+    c.appendChild(el("h1", "", "\uD83D\uDCCA Grade Report" + (s.scope ? " \u2013 " + s.scope : "")));
+    c.appendChild(el("p", "", s.checked));
+    if (s.note) c.appendChild(el("p", "", s.note));
+    s.heads.forEach(function (h) { hr.appendChild(el("th", "", h)); });
+    tbl.appendChild(el("thead")).appendChild(hr);
+    s.rows.forEach(function (r) { var tr = el("tr"); r.forEach(function (v) { tr.appendChild(el("td", "", v)); }); body.appendChild(tr); });
+    tbl.appendChild(body); c.appendChild(tbl);
+    if (s.foot) c.appendChild(el("div", "foot", s.foot));
+    return c;
+  }
+  function save(blob, name) {
+    var a = el("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); say("Saved " + name);
+  }
+
+  var actions = {
+    text: function (s) {
+      var lines = ["Grade Report" + (s.scope ? " (" + s.scope + ")" : ""), s.checked, ""];
+      s.rows.forEach(function (r) { lines.push(r[0] + ": " + r.slice(1).join("  ")); });
+      var text = lines.join("\n");
+      function fallback() { var ta = el("textarea"); ta.value = text; ta.style.cssText = "position:fixed;left:-9999px"; document.body.appendChild(ta); ta.select();
+        var ok = false; try { ok = document.execCommand("copy"); } catch (e) {} ta.remove(); say(ok ? "Copied to the clipboard" : "Couldn't copy"); }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { say("Copied to the clipboard"); }, fallback); else fallback();
+    },
+    image: function (s) {
+      var c = card(s), host = el("div"); host.style.cssText = "position:fixed;left:-9999px;top:0;visibility:hidden"; host.appendChild(c); document.body.appendChild(host);
+      var w = c.offsetWidth, h = c.offsetHeight, xml = new XMLSerializer().serializeToString(c); host.remove();
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '"><foreignObject width="100%" height="100%">' + xml + "</foreignObject></svg>";
+      var img = new Image();
+      img.onload = function () {
+        var cv = document.createElement("canvas"); cv.width = w * 2; cv.height = h * 2; var x = cv.getContext("2d");
+        x.fillStyle = "#fff"; x.fillRect(0, 0, cv.width, cv.height); x.scale(2, 2); x.drawImage(img, 0, 0);
+        try { cv.toBlob(function (b) { if (b) save(b, stem(s) + ".png"); else say("Couldn't make the image"); }, "image/png"); } catch (e) { say("Couldn't make the image"); }
+      };
+      img.onerror = function () { say("Couldn't make the image"); };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    },
+    pdf: function (s) {
+      var host = document.getElementById("sharecard"), title = document.title;
+      host.textContent = ""; host.appendChild(card(s)); document.title = stem(s);
+      window.addEventListener("afterprint", function once() { document.title = title; window.removeEventListener("afterprint", once); });
+      window.print();
+    },
+    html: function (s) {
+      var page = '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Grade Report</title>' +
+        "<style>body{margin:0;padding:24px;background:#f2f2f7;display:flex;justify-content:center}</style></head><body>" + card(s).outerHTML + "</body></html>";
+      save(new Blob([page], { type: "text/html;charset=utf-8" }), stem(s) + ".html");
+    }
+  };
+
+  function close(back) { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); if (back) btn.focus(); }
+  btn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    var open = menu.hidden; menu.hidden = !open; btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) menu.querySelector(".mi").focus();
+  });
+  menu.addEventListener("click", function (e) {
+    var item = e.target.closest(".mi"); if (!item) return;
+    close(true); actions[item.getAttribute("data-do")](snapshot());
+  });
+  document.addEventListener("click", function (e) { if (!menu.hidden && !menu.contains(e.target)) close(false); });
+  document.addEventListener("keydown", function (e) {
+    if (menu.hidden) return;
+    if (e.key === "Escape") close(true);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); var items = Array.prototype.slice.call(menu.querySelectorAll(".mi")), i = items.indexOf(document.activeElement);
+      items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+    }
+  });
 })();
 </script>
 <script>
