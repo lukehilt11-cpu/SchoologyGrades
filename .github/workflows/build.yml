@@ -277,9 +277,12 @@ jobs:
             git commit -m "Version $V"
             git push
           fi
+
+  # After a successful, non-test release: publish the website (docs/index.html and the files beside it).
+  # One-time setting on GitHub: Settings > Pages > Source = "GitHub Actions". Ordinary commits no longer touch the site.
   website:
     name: Update the website
-    needs: [prepare, release]
+    needs: release
     if: ${{ inputs.test_version != true }}
     runs-on: ubuntu-latest
     permissions:
@@ -292,14 +295,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Collect the site files
-        run: |
-          mkdir _site
-          cp index.html _site/
-
       - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: docs
+
       - id: deploy
         uses: actions/deploy-pages@v4
