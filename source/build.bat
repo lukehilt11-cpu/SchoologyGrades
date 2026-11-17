@@ -75,12 +75,9 @@ if "%DEV%"=="1" goto inno_done
 call :find_iscc
 if defined ISCC goto inno_done
 if defined CI goto inno_done
-echo Inno Setup is needed to make the installer and isn't installed.
-choice /c YN /m "Install it now (small, quiet, nothing will pop up)"
-if errorlevel 2 goto inno_done
 where winget >nul 2>&1
 if errorlevel 1 goto inno_done
-echo      Installing Inno Setup...
+echo Inno Setup (needed for the installer) isn't installed, installing it quietly...
 winget install --id JRSoftware.InnoSetup -e --accept-package-agreements --accept-source-agreements --override "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /CURRENTUSER" >> "%LOG%" 2>&1
 call :find_iscc
 if not defined ISCC echo      Couldn't install it, so this build will make a portable zip instead.
